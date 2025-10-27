@@ -7,7 +7,7 @@ from typing import Optional
 
 from core import ContextManager, AutonomousPlanner
 from agent import Executor, Evaluator
-from planner import ActionPlanner, IntentEngine
+from planner import IntentEngine
 
 
 def main() -> None:

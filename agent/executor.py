@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
-from tools.registry import ToolResult, tool_registry
+from pathlib import Path
+
+from tools.registry import tool_registry
+
+if TYPE_CHECKING:  # pragma: no cover - imported only for typing
+    from planner.planner import Plan, PlanStep
 
 
 @dataclass
@@ -36,11 +43,262 @@ class ExecutionResult:
 
 class Executor:
     """Executes plans and manages tool execution with reward feedback."""
-    
+
     def __init__(self, confirm_before_write: bool = True) -> None:
         self.confirm_before_write = confirm_before_write
         self.execution_history: List[ExecutionResult] = []
         self.current_plans: Dict[str, Dict] = {}  # Track running plans
+        self._storage_path = Path(__file__).resolve().parents[1] / "storage" / "plans.json"
+        self._storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self._plan_store: Dict[str, Dict[str, Any]] = {}
+        self._plans: Dict[str, "Plan"] = {}
+        self._plan_summaries: Dict[str, Dict[str, Any]] = {}
+        self._load_from_disk()
+
+    # ------------------------------------------------------------------
+    # Plan registration and lookup helpers
+    # ------------------------------------------------------------------
+    def register_plan(self, plan: "Plan") -> None:
+        """Register a plan so it can be executed or inspected later."""
+
+        self._plans[plan.id] = plan
+        serialized = self._serialize_plan(plan)
+        self._plan_store[plan.id] = serialized
+        self._plan_summaries[plan.id] = self._summary_from_serialized(serialized)
+        self._persist()
+
+    def get_plan(self, plan_id: str) -> Optional["Plan"]:
+        if plan_id in self._plans:
+            return self._plans[plan_id]
+
+        data = self._plan_store.get(plan_id)
+        if not data:
+            return None
+
+        plan = self._deserialize_plan(data)
+        self._plans[plan_id] = plan
+        return plan
+
+    def list_plans(self) -> List["Plan"]:
+        return list(self._plans.values())
+
+    def get_plan_summary(self, plan_id: str) -> Optional[Dict[str, Any]]:
+        return self._plan_summaries.get(plan_id)
+
+    def get_plan_summaries(self, limit: int | None = None) -> List[Dict[str, Any]]:
+        summaries = list(self._plan_summaries.values())
+        summaries.sort(key=lambda s: s.get("created_at", 0), reverse=True)
+        if limit is not None:
+            return summaries[:limit]
+        return summaries
+
+    def get_plan_actions(self, plan_id: str) -> List[SimpleNamespace]:
+        plan = self.get_plan(plan_id)
+        if not plan:
+            return []
+
+        actions: List[SimpleNamespace] = []
+        for step in plan.steps:
+            actions.append(
+                SimpleNamespace(
+                    tool=step.tool,
+                    description=getattr(step, "description", ""),
+                    input_data=step.parameters,
+                    duration_seconds=getattr(step, "estimated_duration", 0.0),
+                )
+            )
+        return actions
+
+    # ------------------------------------------------------------------
+    # Execution helpers
+    # ------------------------------------------------------------------
+    def run_plan(self, plan_or_id: "Plan | str") -> Dict[str, Any]:
+        """Execute a plan by object or identifier and return a summary."""
+
+        plan: Optional["Plan"]
+        if isinstance(plan_or_id, str):
+            plan = self.get_plan(plan_or_id)
+            if plan is None:
+                raise ValueError(f"Unknown plan id '{plan_or_id}'")
+        else:
+            plan = plan_or_id
+            if plan.id not in self._plans:
+                self.register_plan(plan)
+
+        results = self.run(plan)
+        summary = self._build_summary(plan, results)
+        self._plan_summaries[plan.id] = summary
+        self._plan_store[plan.id] = self._serialize_plan(plan)
+        self._plan_store[plan.id]["results"] = summary["results"]
+        self._plan_store[plan.id]["duration_seconds"] = summary["duration_seconds"]
+        self._plan_store[plan.id]["output"] = summary["output"]
+        self._persist()
+        return summary
+
+    def _build_summary(
+        self, plan: "Plan", results: List[ExecutionResult]
+    ) -> Dict[str, Any]:
+        step_lookup: Dict[str, ExecutionResult] = {
+            result.step_id: result for result in results if result.step_id
+        }
+
+        step_summaries: List[Dict[str, Any]] = []
+        for index, step in enumerate(plan.steps, start=1):
+            result = step_lookup.get(step.step_id)
+            step_summary = {
+                "step_number": index,
+                "step_id": step.step_id,
+                "tool": step.tool,
+                "description": getattr(step, "description", ""),
+                "success": bool(result.success if result else step.completed),
+                "error": result.error if result else step.error,
+                "data": result.data if result else step.result,
+                "duration_seconds": result.execution_time if result else 0.0,
+            }
+            step_summaries.append(step_summary)
+
+        completed_steps = sum(1 for summary in step_summaries if summary["success"])
+        total_duration = sum(summary["duration_seconds"] for summary in step_summaries)
+        final_output = ""
+        if step_summaries:
+            final_output = str(step_summaries[-1]["data"] or "")
+
+        return {
+            "id": plan.id,
+            "plan_id": plan.id,
+            "goal": plan.goal,
+            "category": plan.category,
+            "priority": plan.priority,
+            "confidence": getattr(plan, "confidence", 0.0),
+            "status": plan.status,
+            "created_at": plan.created_at,
+            "started_at": plan.started_at,
+            "completed_at": plan.completed_at,
+            "completed_steps": completed_steps,
+            "total_steps": len(plan.steps),
+            "results": step_summaries,
+            "success": plan.status == "completed",
+            "duration_seconds": total_duration,
+            "output": final_output,
+        }
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+    def _serialize_plan(self, plan: "Plan") -> Dict[str, Any]:
+        return {
+            "id": plan.id,
+            "goal": plan.goal,
+            "category": plan.category,
+            "priority": plan.priority,
+            "confidence": getattr(plan, "confidence", 0.0),
+            "status": plan.status,
+            "created_at": plan.created_at,
+            "started_at": plan.started_at,
+            "completed_at": plan.completed_at,
+            "success_rate": getattr(plan, "success_rate", 0.0),
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "tool": step.tool,
+                    "action": step.action,
+                    "parameters": step.parameters,
+                    "description": getattr(step, "description", ""),
+                    "dependencies": step.dependencies,
+                    "completed": step.completed,
+                    "result": step.result,
+                    "error": step.error,
+                    "timestamp": step.timestamp,
+                    "estimated_duration": getattr(step, "estimated_duration", 0.0),
+                }
+                for step in plan.steps
+            ],
+        }
+
+    def _deserialize_plan(self, data: Dict[str, Any]) -> "Plan":
+        from planner.planner import Plan, PlanStep
+
+        steps: List[PlanStep] = []
+        for step_data in data.get("steps", []):
+            step = PlanStep(
+                step_id=step_data.get("step_id", str(uuid.uuid4())),
+                tool=step_data.get("tool", "unknown"),
+                action=step_data.get("action", ""),
+                parameters=step_data.get("parameters", {}),
+                description=step_data.get("description", ""),
+                dependencies=step_data.get("dependencies", []),
+                completed=step_data.get("completed", False),
+                result=step_data.get("result"),
+                error=step_data.get("error"),
+                timestamp=step_data.get("timestamp", time.time()),
+                estimated_duration=step_data.get("estimated_duration", 0.0),
+            )
+            steps.append(step)
+
+        plan = Plan(
+            id=data.get("id", str(uuid.uuid4())),
+            goal=data.get("goal", ""),
+            category=data.get("category", "action"),
+            priority=float(data.get("priority", 0.0)),
+            confidence=float(data.get("confidence", 0.0)),
+            steps=steps,
+            status=data.get("status", "created"),
+            created_at=data.get("created_at", time.time()),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+            success_rate=float(data.get("success_rate", 0.0)),
+        )
+        return plan
+
+    def _summary_from_serialized(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        steps = data.get("steps", [])
+        completed_steps = sum(1 for step in steps if step.get("completed"))
+        return {
+            "id": data.get("id", ""),
+            "goal": data.get("goal", ""),
+            "category": data.get("category", ""),
+            "priority": float(data.get("priority", 0.0)),
+            "confidence": float(data.get("confidence", 0.0)),
+            "status": data.get("status", "created"),
+            "created_at": data.get("created_at", 0.0),
+            "started_at": data.get("started_at"),
+            "completed_at": data.get("completed_at"),
+            "completed_steps": completed_steps,
+            "total_steps": len(steps),
+            "results": data.get("results", []),
+            "success": data.get("status") == "completed",
+            "duration_seconds": float(data.get("duration_seconds", 0.0)),
+            "output": data.get("output", ""),
+        }
+
+    def _persist(self) -> None:
+        payload = {"plans": list(self._plan_store.values())}
+        try:
+            self._storage_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass
+
+    def _load_from_disk(self) -> None:
+        if not self._storage_path.exists():
+            return
+
+        try:
+            content = self._storage_path.read_text(encoding="utf-8")
+            data = json.loads(content) if content.strip() else {}
+        except (OSError, json.JSONDecodeError):
+            return
+
+        plans = data.get("plans", []) if isinstance(data, dict) else []
+        for plan_data in plans:
+            if not isinstance(plan_data, dict):
+                continue
+            plan_id = plan_data.get("id")
+            if not plan_id:
+                continue
+            self._plan_store[plan_id] = plan_data
+            self._plan_summaries[plan_id] = self._summary_from_serialized(plan_data)
         
     def run(self, plan) -> List[ExecutionResult]:
         """
@@ -74,9 +332,9 @@ class Executor:
                 results.append(step_result)
                 
                 # Update step status in plan
-                step.completed = step_result.success
-                step.result = str(step_result.data) if step_result.success else None
-                step.error = step_result.error if not step_result.success else None
+                next_step.completed = step_result.success
+                next_step.result = str(step_result.data) if step_result.success else None
+                next_step.error = step_result.error if not step_result.success else None
                 
                 # Update tracking
                 if step_result.success:
