@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/docs/config.schema.json",
+  "include": ["core", "interfaces", "neural", "rl"],
+  "exclude": [
+    "whisper.cpp"
+  ],
+  "venvPath": ".",
+  "venv": ".venv"
+}
