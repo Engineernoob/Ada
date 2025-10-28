@@ -7,25 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
-import yaml
-
-def get_setting(*keys: str, default=None):
-    """Local copy of get_setting to avoid circular imports."""
-    from pathlib import Path
-    settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
-    try:
-        with open(settings_path, 'r') as f:
-            settings = yaml.safe_load(f)
-        
-        node = settings
-        for key in keys:
-            if isinstance(node, dict) and key in node:
-                node = node[key]
-            else:
-                return default
-        return node
-    except (FileNotFoundError, yaml.YAMLError):
-        return default
+from core.settings import get_setting
 
 
 @dataclass
