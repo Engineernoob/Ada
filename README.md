@@ -123,6 +123,36 @@ Ada: Analysis complete, Taahirah. Shall I visualize the trends?
 - **action** - Create, build, write, organize
 - **clarification** - Ask questions and seek understanding
 
+### Phase 7 - Mission Daemon & Continuous Learning
+
+Ada now runs long-horizon improvement routines via the Mission Daemon:
+
+#### Mission Commands
+- `/mission new "<goal>"` - Capture a new long-running goal
+- `/mission list` - Review recent missions and their status
+- `/mission run <mission_id>` - Execute a mission immediately in the foreground
+
+#### Daemon & Audit Commands
+- `/daemon start` - Launch the asynchronous mission daemon thread
+- `/daemon stop` - Stop the background daemon
+- `/daemon status` - Check daemon health
+- `/audit` - Force a checkpoint audit and log reward/drift deltas
+
+#### Mission Runtime Behavior
+- Missions are stored in `storage/missions.db`
+- Background logs persist to `storage/logs/mission.log`
+- Checkpoints are tracked under `storage/checkpoints/`
+- Audit metadata is saved to `storage/checkpoints/mission_audit.json`
+
+#### Manual Daemon Startup
+```bash
+make run  # launch CLI
+# inside the CLI
+/daemon start
+```
+
+The daemon wakes every 60 minutes (configurable in `config/settings.yaml`) to execute pending missions, fine-tune models, and audit checkpoints.
+
 ## Offline Training
 
 ```bash

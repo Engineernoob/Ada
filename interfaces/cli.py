@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import shlex
 from typing import Optional
 
 import torch
 
 from core import ContextManager, ReasoningEngine, RewardEngine, AutonomousPlanner
 from rl import AdaAgent, DialogueEnvironment, ExperienceBuffer
+from missions import (
+    MissionAuditor,
+    MissionDaemon,
+    MissionManager,
+    MissionSettings,
+    CurriculumTrainer,
+)
 from .event_loop import EventLoop
 
 
@@ -32,6 +40,8 @@ class AdaSession:
     environment: DialogueEnvironment
     agent: AdaAgent
     autonomous_planner: AutonomousPlanner
+    mission_manager: MissionManager | None = None
+    mission_daemon: MissionDaemon | None = None
     pending: Optional[PendingFeedback] = None
     cumulative_reward: float = 0.0
     feedback_count: int = 0
@@ -58,6 +68,12 @@ class AdaSession:
             return self._handle_run_command(user_input)
         elif user_input.startswith("/abort"):
             return self._handle_abort_command(user_input)
+        elif user_input.startswith("/mission"):
+            return self._handle_mission_command(user_input)
+        elif user_input.startswith("/daemon"):
+            return self._handle_daemon_command(user_input)
+        elif user_input.startswith("/audit"):
+            return self._handle_audit_command()
         else:
             return self._handle_message(user_input)
 
@@ -226,6 +242,81 @@ class AdaSession:
         response = self.engine.persona.get_persona_summary()
         return response
 
+    def _handle_mission_command(self, command: str) -> str:
+        if not self.mission_manager:
+            return "Mission system is not available."
+        try:
+            parts = shlex.split(command)
+        except ValueError as exc:
+            return f"Unable to parse command: {exc}"
+        if len(parts) < 2:
+            return "Usage: /mission <new|list|run>"
+        action = parts[1].lower()
+        if action == "new":
+            if len(parts) < 3:
+                return "Usage: /mission new \"<goal>\""
+            goal = " ".join(parts[2:])
+            mission = self.mission_manager.create_mission(goal)
+            return f"🗒️ Mission {mission.id} created for goal: {mission.goal}"
+        if action == "list":
+            missions = self.mission_manager.list_missions(limit=10)
+            if not missions:
+                return "No missions recorded yet."
+            response = ["📋 Missions:"]
+            for mission in missions:
+                status_icon = {
+                    "completed": "✅",
+                    "running": "⚙️",
+                    "failed": "❌",
+                }.get(mission.status, "⏳")
+                response.append(
+                    f"  {status_icon} {mission.id} — {mission.goal} (status: {mission.status})"
+                )
+            return "\n".join(response)
+        if action == "run":
+            if len(parts) < 3:
+                return "Usage: /mission run <mission_id>"
+            mission_id = parts[2]
+            if not self.mission_daemon:
+                return "Mission daemon is not configured."
+            try:
+                result = self.mission_daemon.run_mission_blocking(mission_id)
+            except ValueError:
+                return f"Mission {mission_id} was not found."
+            status_icon = "✅" if result.success else "❌"
+            details = ""
+            if result.audit:
+                details = (
+                    f" | Reward Δ {result.audit.reward_delta:+.2f} Drift {result.audit.drift:.2f}"
+                )
+            return f"{status_icon} {result.message}{details}"
+        return "Unknown /mission subcommand."
+
+    def _handle_daemon_command(self, command: str) -> str:
+        if not self.mission_daemon:
+            return "Mission daemon is not configured."
+        parts = command.split()
+        if len(parts) < 2:
+            return "Usage: /daemon start|stop|status"
+        action = parts[1].lower()
+        if action == "start":
+            self.mission_daemon.start_background()
+            return "🗓 Mission daemon started."
+        if action == "stop":
+            self.mission_daemon.stop_background()
+            return "🛑 Mission daemon stopped."
+        if action == "status":
+            return "🟢 Daemon running" if self.mission_daemon.is_running else "⚪️ Daemon idle"
+        return "Unknown /daemon subcommand."
+
+    def _handle_audit_command(self) -> str:
+        if not self.mission_daemon:
+            return "Mission daemon is not configured."
+        report = self.mission_daemon.run_audit_blocking()
+        return (
+            f"📈 Latest checkpoint audited. Reward Δ {report.reward_delta:+.2f} | Drift {report.drift:.2f}"
+        )
+
 
 def main() -> None:
     print("Initializing Ada core systems...")
@@ -294,7 +385,24 @@ def main() -> None:
     except Exception as e:
         print(f"  ❌ Autonomous planner failed: {e}")
         autonomous_planner = None
-    
+
+    try:
+        mission_settings = MissionSettings.from_settings()
+        mission_manager = MissionManager()
+        curriculum_trainer = CurriculumTrainer()
+        mission_auditor = MissionAuditor()
+        mission_daemon = MissionDaemon(
+            manager=mission_manager,
+            trainer=curriculum_trainer,
+            auditor=mission_auditor,
+            settings=mission_settings,
+        )
+        print("  ✓ Mission daemon ready")
+    except Exception as e:
+        print(f"  ❌ Mission daemon failed: {e}")
+        mission_manager = None
+        mission_daemon = None
+
     try:
         session = AdaSession(
             context_manager=context,
@@ -303,6 +411,8 @@ def main() -> None:
             environment=environment,
             agent=agent,
             autonomous_planner=autonomous_planner,
+            mission_manager=mission_manager,
+            mission_daemon=mission_daemon,
         )
         print("  ✓ Session initialized")
     except Exception as e:
@@ -319,7 +429,10 @@ def main() -> None:
     print("")
     print("🎉 Ada initialization complete!")
     print("Ada: Hello Taahirah, systems ready to learn. Type 'quit' to exit.")
-    print("Commands available: /plan <goal>, /goals, /run <plan_id>, /memory, /persona")
+    print(
+        "Commands available: /plan <goal>, /goals, /run <plan_id>, /abort <plan_id>, "
+        "/mission new \"<goal>\", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona"
+    )
     print("")
     print("💡 Note: Running in fallback mode due to external library compatibility issues.")
     print("   Core functionality (memory, persona, planning) is fully operational.")
