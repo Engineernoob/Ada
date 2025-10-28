@@ -45,3 +45,9 @@ planner:
   tools:
     allow_local: ["file_ops","summarize","note"]
     confirm_before_write: true
+
+missions:
+  enabled: true
+  check_interval_minutes: 60
+  curriculum_learning: true
+  auto_audit: true
