@@ -123,6 +123,54 @@ Ada: Analysis complete, Taahirah. Shall I visualize the trends?
 - **action** - Create, build, write, organize
 - **clarification** - Ask questions and seek understanding
 
+### Phase 7 - Mission Daemon & Continuous Learning
+
+Ada now runs long-horizon improvement routines via the Mission Daemon:
+
+#### Mission Commands
+- `/mission new "<goal>"` - Capture a new long-running goal
+- `/mission list` - Review recent missions and their status
+- `/mission run <mission_id>` - Execute a mission immediately in the foreground
+
+#### Daemon & Audit Commands
+- `/daemon start` - Launch the asynchronous mission daemon thread
+- `/daemon stop` - Stop the background daemon
+- `/daemon status` - Check daemon health
+- `/audit` - Force a checkpoint audit and log reward/drift deltas
+
+#### Mission Runtime Behavior
+- Missions are stored in `storage/missions.db`
+- Background logs persist to `storage/logs/mission.log`
+- Checkpoints are tracked under `storage/checkpoints/`
+- Audit metadata is saved to `storage/checkpoints/mission_audit.json`
+
+#### Manual Daemon Startup
+```bash
+make run  # launch CLI
+# inside the CLI
+/daemon start
+```
+
+The daemon wakes every 60 minutes (configurable in `config/settings.yaml`) to execute pending missions, fine-tune models, and audit checkpoints.
+
+### Phase 8 - Self-Optimization & Neural Evolution
+
+Ada now includes an optimizer stack that tunes hyperparameters, explores model variants, and preserves the best checkpoints.
+
+#### Optimizer Commands
+- `/optimize now` - Run the auto-tuner against recent metrics and apply new hyperparameters
+- `/evolve` - Launch a genetic-style search over model variants and promote the best candidate
+- `/metrics [n]` - Display the latest `n` optimizer metric snapshots (defaults to 5)
+- `/rollback <checkpoint_id>` - Restore a promoted checkpoint (requires `optimizer.rollback_safe: true`)
+
+#### Optimizer Features
+- **Metrics Tracker** - Records reward, loss, gradient norm, CPU usage, and latency in `storage/optimizer/metrics.db` and logs to `storage/logs/optimizer.log`
+- **Auto-Tuner** - Adjusts learning rate, hidden size, dropout, activation, and batch size using recorded metrics (`storage/optimizer/hyperparams.json`)
+- **Evolution Engine** - Generates and evaluates candidate configurations, storing experiment history in `storage/optimizer/experiments.db`
+- **Checkpoint Manager** - Saves top-performing checkpoints to `storage/checkpoints/` with metadata tracked in `storage/optimizer/checkpoints.json`
+
+The mission daemon automatically triggers the auto-tuner after optimization-focused missions, keeping Ada's models aligned with long-running goals.
+
 ## Offline Training
 
 ```bash
