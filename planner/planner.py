@@ -6,26 +6,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
-from pathlib import Path
 
-import yaml
-
-def get_setting(*keys: str, default=None):
-    """Local copy of get_setting to avoid circular imports."""
-    settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
-    try:
-        with open(settings_path, 'r') as f:
-            settings = yaml.safe_load(f)
-        
-        node = settings
-        for key in keys:
-            if isinstance(node, dict) and key in node:
-                node = node[key]
-            else:
-                return default
-        return node
-    except (FileNotFoundError, yaml.YAMLError):
-        return default
+from core.settings import get_setting
 
 
 @dataclass
@@ -35,11 +17,19 @@ class PlanStep:
     tool: str
     action: str
     parameters: Dict[str, Any]
+    description: str = ""
     dependencies: List[str] = field(default_factory=list)
     completed: bool = False
     result: Optional[str] = None
     error: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
+    estimated_duration: float = 60.0
+
+    def __post_init__(self) -> None:
+        if not self.description:
+            self.description = self.parameters.get("description", "")
+        elif "description" not in self.parameters and self.description:
+            self.parameters = {**self.parameters, "description": self.description}
 
 
 @dataclass 
@@ -49,6 +39,7 @@ class Plan:
     goal: str
     category: str
     priority: float
+    confidence: float
     steps: List[PlanStep]
     status: str = "created"  # created, executing, completed, failed, aborted
     created_at: float = field(default_factory=time.time)
@@ -63,6 +54,7 @@ class Plan:
             "goal": self.goal,
             "category": self.category,
             "priority": self.priority,
+            "confidence": self.confidence,
             "status": self.status,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -78,7 +70,8 @@ class Plan:
                     "completed": step.completed,
                     "result": step.result,
                     "error": step.error,
-                    "timestamp": step.timestamp
+                    "timestamp": step.timestamp,
+                    "estimated_duration": step.estimated_duration,
                 }
                 for step in self.steps
             ]
@@ -207,6 +200,7 @@ class Planner:
             goal=goal.goal,
             category=goal.category,
             priority=goal.priority,
+            confidence=goal.confidence,
             steps=steps
         )
     
@@ -251,6 +245,7 @@ class Planner:
             goal=goal.goal,
             category=goal.category,
             priority=goal.priority,
+            confidence=goal.confidence,
             steps=steps
         )
     
@@ -270,8 +265,8 @@ class Planner:
             PlanStep(
                 step_id="create_content",
                 tool="file_ops",
-                action="write", 
-                parameters={"path": target, "content": "analysis_requirements.result", "description": f"Create {target}"},
+                action="write",
+                parameters={"path": target, "content": "analyze_requirements.result", "description": f"Create {target}"},
                 dependencies=["analyze_requirements"]
             ),
             PlanStep(
@@ -295,6 +290,7 @@ class Planner:
             goal=goal.goal,
             category=goal.category,
             priority=goal.priority,
+            confidence=goal.confidence,
             steps=steps
         )
     
@@ -338,6 +334,7 @@ class Planner:
             goal=goal.goal,
             category=goal.category,
             priority=goal.priority,
+            confidence=goal.confidence,
             steps=steps
         )
     
@@ -381,6 +378,7 @@ class Planner:
             goal=goal.goal,
             category=goal.category,
             priority=goal.priority,
+            confidence=goal.confidence,
             steps=steps
         )
     

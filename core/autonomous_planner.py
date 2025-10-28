@@ -45,7 +45,8 @@ class AutonomousPlanner:
         for intent in intents[:2]:  # Limit to top 2 intents to avoid overload
             # Create plan for each intent
             plan = self.planner.plan(intent)
-            
+            self.executor.register_plan(plan)
+
             # Log plan creation
             # Note: Using the existing logger interface
             # self.executor.logger.log_plan_creation(
@@ -107,7 +108,8 @@ class AutonomousPlanner:
         
         # Create plan
         plan = self.planner.plan(intent)
-        
+        self.executor.register_plan(plan)
+
         print(f"🎯 Creating plan for: {goal}")
         print(f"   Category: {category}")
         print(f"   Steps: {len(plan.steps)}")
@@ -128,73 +130,38 @@ class AutonomousPlanner:
         """Execute a previously created plan by ID."""
         # This would involve retrieving the plan from storage
         # For now, we'll implement a simple lookup
-        plan_records = list(self.executor.logger.get_plans(limit=100))
-        
-        target_plan = None
-        for record in plan_records:
-            if record.id == plan_id and record.status == "created":
-                # Reconstruct plan from record and actions
-                # This is simplified - in a full implementation we'd store the full plan JSON
-                target_plan = self._reconstruct_plan(record)
-                break
-        
+        target_plan = self.executor.get_plan(plan_id)
         if not target_plan:
             return {"status": "error", "error": f"Plan {plan_id} not found or already executed"}
-        
+
+        if target_plan.status != "created":
+            return {"status": "error", "error": f"Plan {plan_id} already executed"}
+
         print(f"🚀 executing plan: {plan_id}")
         execution_result = self.executor.run_plan(target_plan)
         evaluation = self.evaluator.evaluate_plan(plan_id, execution_result)
-        
+
         return {
             "status": "executed",
             "execution": execution_result,
             "evaluation": evaluation
         }
 
-    def _reconstruct_plan(self, record) -> Any:
-        """Reconstruct a plan object from a record."""
-        from planner.planner import Plan, PlanningStep
-        
-        # Get the actions for this plan
-        actions = list(self.executor.logger.get_plan_actions(record.id))
-        
-        # Reconstruct steps
-        steps = []
-        for action in actions:
-            step = PlanningStep(
-                tool=action.tool,
-                description=action.description,
-                input_data=action.input_data,
-                estimated_duration=action.duration_seconds
-            )
-            steps.append(step)
-        
-        return Plan(
-            goal=record.goal,
-            steps=steps,
-            priority=record.priority,
-            confidence=record.confidence,
-            category=record.category,
-            id=record.id
-        )
-
     def get_goals(self) -> List[Dict[str, Any]]:
         """Get recent discovered goals and their status."""
-        plan_records = list(self.executor.logger.get_plans(limit=10))
-        
-        goals = []
-        for record in plan_records:
-            goals.append({
-                "id": record.id,
-                "goal": record.goal,
-                "category": record.category,
-                "priority": record.priority,
-                "confidence": record.confidence,
-                "status": record.status,
-                "created_at": record.created_at
-            })
-        
-        return goals
+        plan_summaries = self.executor.get_plan_summaries(limit=10)
+        return [
+            {
+                "id": summary.get("id", ""),
+                "goal": summary.get("goal", ""),
+                "category": summary.get("category", ""),
+                "priority": float(summary.get("priority", 0.0)),
+                "confidence": float(summary.get("confidence", 0.0)),
+                "status": summary.get("status", "created"),
+                "created_at": summary.get("created_at", 0.0),
+            }
+            for summary in plan_summaries
+        ]
 
     def get_performance_report(self) -> str:
         """Get a performance report of autonomous actions."""
