@@ -153,6 +153,24 @@ make run  # launch CLI
 
 The daemon wakes every 60 minutes (configurable in `config/settings.yaml`) to execute pending missions, fine-tune models, and audit checkpoints.
 
+### Phase 8 - Self-Optimization & Neural Evolution
+
+Ada now includes an optimizer stack that tunes hyperparameters, explores model variants, and preserves the best checkpoints.
+
+#### Optimizer Commands
+- `/optimize now` - Run the auto-tuner against recent metrics and apply new hyperparameters
+- `/evolve` - Launch a genetic-style search over model variants and promote the best candidate
+- `/metrics [n]` - Display the latest `n` optimizer metric snapshots (defaults to 5)
+- `/rollback <checkpoint_id>` - Restore a promoted checkpoint (requires `optimizer.rollback_safe: true`)
+
+#### Optimizer Features
+- **Metrics Tracker** - Records reward, loss, gradient norm, CPU usage, and latency in `storage/optimizer/metrics.db` and logs to `storage/logs/optimizer.log`
+- **Auto-Tuner** - Adjusts learning rate, hidden size, dropout, activation, and batch size using recorded metrics (`storage/optimizer/hyperparams.json`)
+- **Evolution Engine** - Generates and evaluates candidate configurations, storing experiment history in `storage/optimizer/experiments.db`
+- **Checkpoint Manager** - Saves top-performing checkpoints to `storage/checkpoints/` with metadata tracked in `storage/optimizer/checkpoints.json`
+
+The mission daemon automatically triggers the auto-tuner after optimization-focused missions, keeping Ada's models aligned with long-running goals.
+
 ## Offline Training
 
 ```bash

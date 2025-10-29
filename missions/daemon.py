@@ -8,12 +8,16 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from threading import Event, Thread
+from typing import TYPE_CHECKING
 
 from core.settings import get_setting
 
 from .auditor import AuditReport, MissionAuditor
 from .curriculum_trainer import CurriculumResult, CurriculumTrainer
 from .mission_manager import Mission, MissionManager
+
+if TYPE_CHECKING:
+    from optimizer.auto_tuner import AutoTuner
 
 LOGGER = logging.getLogger("ada.missions.daemon")
 LOG_PATH = Path(__file__).resolve().parents[1] / "storage" / "logs" / "mission.log"
@@ -64,6 +68,7 @@ class MissionDaemon:
         auditor: MissionAuditor | None = None,
         settings: MissionSettings | None = None,
         log_path: Path | None = None,
+        auto_tuner: "AutoTuner" | None = None,
     ) -> None:
         self.manager = manager
         self.trainer = trainer or CurriculumTrainer()
@@ -76,6 +81,7 @@ class MissionDaemon:
         self._thread: Thread | None = None
         self._background_loop: asyncio.AbstractEventLoop | None = None
         self._cycle = 0
+        self.auto_tuner = auto_tuner
 
     # -- Public API -----------------------------------------------------------------
     def start_background(self) -> None:
@@ -174,6 +180,15 @@ class MissionDaemon:
                 curriculum_result = await self.trainer.run(mission)
             self.manager.record_run(mission.id, "completed")
             if self.settings.auto_audit:
+                audit_report = self.auditor.audit_checkpoint(
+                    mission,
+                    curriculum_result.checkpoint_path if curriculum_result else None,
+                )
+            if self.auto_tuner and self._should_optimize(mission):
+                try:
+                    await self.auto_tuner.run_cycle()
+                except Exception:  # noqa: BLE001
+                    LOGGER.exception("Auto-tuner cycle failed after mission %s", mission.id)
                 audit_report = self.auditor.audit_checkpoint(mission, curriculum_result.checkpoint_path if curriculum_result else None)
         except Exception as exc:  # noqa: BLE001
             success = False
@@ -212,10 +227,17 @@ class MissionDaemon:
             LOGGER.addHandler(handler)
         LOGGER.propagate = False
 
+    def _should_optimize(self, mission: Mission) -> bool:
+        goal = mission.goal.lower()
+        return any(keyword in goal for keyword in ("optimize", "train", "tune", "voice", "persona"))
+
+
+def build_default_daemon(manager: MissionManager | None = None, auto_tuner: "AutoTuner" | None = None) -> MissionDaemon:
 
 def build_default_daemon(manager: MissionManager | None = None) -> MissionDaemon:
     manager = manager or MissionManager()
     settings = MissionSettings.from_settings()
     trainer = CurriculumTrainer()
     auditor = MissionAuditor()
+    return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings, auto_tuner=auto_tuner)
     return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings)

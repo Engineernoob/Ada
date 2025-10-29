@@ -51,3 +51,12 @@ missions:
   check_interval_minutes: 60
   curriculum_learning: true
   auto_audit: true
+
+optimizer:
+  enabled: true
+  evaluation_interval_hours: 6
+  max_population: 5
+  mutation_rate: 0.15
+  selection_top_k: 2
+  preserve_best: true
+  rollback_safe: true
