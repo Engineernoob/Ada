@@ -1,246 +1,257 @@
-# Ada Scaffold (Phases 1-5 + Phase 3 Fix)
+# Ada - Autonomous AI Assistant
 
-## Setup
+Ada is an advanced AI assistant with conversational memory, autonomous planning, self-optimization, and voice interaction capabilities. She can learn from conversations, execute tasks autonomously, and continuously improve her performance.
 
+## Features
+
+### 🧠 Core Capabilities
+- **Conversational AI** with semantic understanding
+- **Memory System** for contextual awareness
+- **Persona Development** that evolves over time
+- **Autonomous Planning** for goal execution
+- **Tool Integration** for real-world interactions
+- **Voice Interface** with speech-to-text and text-to-speech
+- **Self-Optimization** through neural evolution
+
+### 🎯 Advanced Features
+- **Interactive Reinforcement Learning** - Rate responses to improve Ada
+- **Mission Daemon** for continuous background tasks
+- **Semantic Memory** with vector-based retrieval
+- **Multi-Tool Registry** (file operations, web search, summarization)
+- **Web UI Interface** for visual interaction
+
+## Quick Start
+
+### Prerequisites
+- Python 3.12+
+- macOS (or Linux with minor adjustments)
+- Git
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/Engineernoob/Ada.git
+cd Ada
+```
+
+2. Create and activate virtual environment:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+3. Install dependencies:
+```bash
 make setup
 ```
 
-## Usage
+### Running Ada
 
+#### CLI Interface
 ```bash
 make run
 ```
 
-## Interactive Reinforcement Learning
-
-- Launch Ada: `make run`
-- After each response, provide feedback in the CLI:
-  - `/rate good` or `/rate +1` to reward
-  - `/rate bad` or `/rate -1` to penalize
-- View rolling metrics echoed after each rating.
-
-### Phase 5 - Autonomous Exploration & Tool-Use Agent
-
-Ada now includes autonomous planning capabilities with the following new features:
-
-#### Autonomous Planning Commands
-- `/plan "<goal>"` - Create a plan for a specific goal
-- `/goals` - Show recent autonomous goals and their status
-- `/run <plan_id>` - Execute a previously created plan
-
-#### Standalone Planning CLI
-```bash
-python3 cli_planner.py plan "research topic" --category research
-python3 cli_planner.py plan "create summary" --execute
-python3 cli_planner.py goals --limit 10
-python3 cli_planner.py performance --insights
-python3 cli_planner.py tools --test web_search --input "query"
-```
-
-#### Available Tools
-- **web_search** - Search for information (uses mdfind on macOS)
-- **summarize** - Summarize text content and save to storage
-- **note** - Save notes with metadata
-- **analyze** - Alias for web_search
-- **extract** - Alias for summarize
-- **create** - Alias for note
-
-### Phase 3.5 - Conversational Memory & Semantic Recall
-
-Ada now includes episodic memory capabilities with the following features:
-
-#### Memory Commands
-- `/memory` - Show memory statistics and status
-
-#### Memory Features
-- Stores conversation exchanges with embeddings for semantic retrieval
-- Retrieves relevant past conversations to provide context
-- Automatic memory integration with reasoning engine
-- Persistent storage with SQLite database
-
-### Phase 4 - Persona Formation & Identity Consolidation
-
-Ada now develops and maintains a consistent personality through:
-
-#### Persona Commands
-- `/persona` - Display current persona statistics and characteristics
-
-#### Persona Features
-- **Persona Vector Generation** - Aggregates patterns from Ada's responses into persistent embeddings
-- **Style Bias Application** - Biases response generation toward Ada's learned voice and tone  
-- **Drift Detection** - Monitors personality changes and warns when recalibration is needed
-- **Automatic Updates** - Persona updates after configured intervals (default: 20 dialogs)
-- **Self-Description** - Ada can describe her own personality traits in plain language
-
-#### Example Persona Output
-```
-Ada Persona Summary:
-Tone: warm, confident
-Phrasing: concise, polite
-Drift: 0.08 since last update
-```
-
-### Phase 5.5 - Autonomous Planning & Tool Use
-
-Ada now operates as a self-directed agent capable of forming and executing her own goals:
-
-#### Planning Commands
-- `/plan "<goal>"` - Create an autonomous plan for a specific goal
-- `/goals` - Show recent inferred goals and their planning status
-- `/run <plan_id>` - Execute a previously created plan
-- `/abort <plan_id>` - Abort a running plan
-
-#### Autonomous Planning Features
-- **Intent Inference** - Automatically detects goals from ongoing dialogue and reflections
-- **Hierarchical Planning** - Decomposes goals into ordered, executable steps
-- **Tool Registry** - Provides controlled interfaces for file operations, web search, summarization, and note-taking
-- **Execution Engine** - Executes plans with success/failure tracking and reward feedback
-- **Persona-Aligned Decision Making** - Uses persona vector to bias goal selection (curious, helpful, analytical)
-
-#### Available Tools
-- **file_ops** - Read/write/list local files and directories
-- **web_search** - Local and web information discovery
-- **summarize** - Content summarization and key information extraction  
-- **note** - Journal operations and note-taking
-- **analyze** - Data interpretation and evaluation
-
-#### Example Interaction
-```
-You: Ada, maybe you could analyze yesterday's logs.
-Ada: Detected intent → "analyze logs"
-🧭 Planner: 3 steps created
-✅ Step 1 complete | Reward +0.6
-✅ Step 2 complete | Reward +0.9
-📝 Summary saved to journal
-Ada: Analysis complete, Taahirah. Shall I visualize the trends?
-```
-
-#### Goal Categories
-- **research** - Learn and explore topics
-- **action** - Create, build, write, organize
-- **clarification** - Ask questions and seek understanding
-
-### Phase 7 - Mission Daemon & Continuous Learning
-
-Ada now runs long-horizon improvement routines via the Mission Daemon:
-
-#### Mission Commands
-- `/mission new "<goal>"` - Capture a new long-running goal
-- `/mission list` - Review recent missions and their status
-- `/mission run <mission_id>` - Execute a mission immediately in the foreground
-
-#### Daemon & Audit Commands
-- `/daemon start` - Launch the asynchronous mission daemon thread
-- `/daemon stop` - Stop the background daemon
-- `/daemon status` - Check daemon health
-- `/audit` - Force a checkpoint audit and log reward/drift deltas
-
-#### Mission Runtime Behavior
-- Missions are stored in `storage/missions.db`
-- Background logs persist to `storage/logs/mission.log`
-- Checkpoints are tracked under `storage/checkpoints/`
-- Audit metadata is saved to `storage/checkpoints/mission_audit.json`
-
-#### Manual Daemon Startup
-```bash
-make run  # launch CLI
-# inside the CLI
-/daemon start
-```
-
-The daemon wakes every 60 minutes (configurable in `config/settings.yaml`) to execute pending missions, fine-tune models, and audit checkpoints.
-
-### Phase 8 - Self-Optimization & Neural Evolution
-
-Ada now includes an optimizer stack that tunes hyperparameters, explores model variants, and preserves the best checkpoints.
-
-#### Optimizer Commands
-- `/optimize now` - Run the auto-tuner against recent metrics and apply new hyperparameters
-- `/evolve` - Launch a genetic-style search over model variants and promote the best candidate
-- `/metrics [n]` - Display the latest `n` optimizer metric snapshots (defaults to 5)
-- `/rollback <checkpoint_id>` - Restore a promoted checkpoint (requires `optimizer.rollback_safe: true`)
-
-#### Optimizer Features
-- **Metrics Tracker** - Records reward, loss, gradient norm, CPU usage, and latency in `storage/optimizer/metrics.db` and logs to `storage/logs/optimizer.log`
-- **Auto-Tuner** - Adjusts learning rate, hidden size, dropout, activation, and batch size using recorded metrics (`storage/optimizer/hyperparams.json`)
-- **Evolution Engine** - Generates and evaluates candidate configurations, storing experiment history in `storage/optimizer/experiments.db`
-- **Checkpoint Manager** - Saves top-performing checkpoints to `storage/checkpoints/` with metadata tracked in `storage/optimizer/checkpoints.json`
-
-The mission daemon automatically triggers the auto-tuner after optimization-focused missions, keeping Ada's models aligned with long-running goals.
-
-## Offline Training
-
-```bash
-make train
-```
-
-### Replay Fine-Tuning
-
-```bash
-make train-rl
-```
-
-Runs Ada's adaptive loop over stored conversations and persists updated weights.
-
-## Running Ada in Voice-Learning Mode
-
-1. Ensure local binaries for Whisper.cpp and Piper are installed and paths configured in `config/settings.yaml`.
-2. Connect a microphone compatible with macOS CoreAudio.
-3. Start the voice loop:
-
+#### Voice Mode (requires additional setup)
 ```bash
 make run-voice
 ```
 
-Real-time HUD will display listening/processing states and tone-derived rewards. Ada automatically speaks responses using the configured voice model.
+#### Web Interface
+Open `ui/index.html` in your browser after starting Ada
 
-## Notes
+## Usage Guide
 
-- Install Whisper.cpp, Piper, and Silero VAD assets locally for full voice functionality.
-- Run `make mps-test` to verify Apple Silicon acceleration.
-- Phase 5 data is stored in `storage/actions.db` and `storage/notes/`, `storage/summaries/`
+### Interactive Learning
+- `/rate good` or `/rate +1` - Reward good responses
+- `/rate bad` or `/rate -1` - Penalize poor responses
+- View rolling metrics after each rating
 
-### Phase 3 Conversational Fix — Language Encoder
+### Memory Commands
+- `/memory` - Display memory statistics
+- Ada automatically remembers conversations with semantic retrieval
 
-Ada now uses **SentenceTransformers** (MiniLM-L6-v2) for semantic text encoding instead of simple hashing tricks, enabling:
+### Persona Development
+- `/persona` - View current persona characteristics
+- Ada develops personality based on conversation patterns
 
-- **Dynamic Confidence Values**: Confidence now varies based on semantic understanding (0.1-0.8 typical range)
-- **Better Comprehension**: Real semantic embedding of user input
-- **384-Dimensional Embeddings**: Rich vector representations versus basic token counting
+### Autonomous Planning
+- `/plan "<goal>"` - Create a plan for a goal
+- `/goals` - Show recent autonomous goals
+- `/run <plan_id>` - Execute a plan
+- `/abort <plan_id>` - Abort a running plan
 
-#### Expected Behavior Examples:
+### Mission Management
+- `/mission new "<goal>"` - Create long-running mission
+- `/mission list` - View active missions
+- `/mission run <mission_id>` - Execute mission
+- `/daemon start` - Start background mission daemon
+- `/daemon stop` - Stop daemon
+- `/daemon status` - Check daemon health
+- `/audit` - Force checkpoint audit
 
+### Optimization
+- `/optimize now` - Run auto-tuner
+- `/evolve` - Launch neural evolution
+- `/metrics [n]` - Show latest metrics
+- `/rollback <checkpoint_id>` - Restore checkpoint
+
+## Standalone Planner CLI
+
+Plan and execute goals outside the main interface:
+
+```bash
+# Create plans
+python3 cli_planner.py plan "research topic" --category research
+python3 cli_planner.py plan "write article" --execute
+
+# View goals and performance
+python3 cli_planner.py goals --limit 10
+python3 cli_planner.py performance --insights
+
+# Test tools
+python3 cli_planner.py tools --test web_search --input "query"
 ```
-You: hi ada
-Ada: Hello, Taahirah! How's your day going? (confidence: 0.47)
-You: I'm good  
-Ada: That's great to hear. (confidence: 0.59)
-You: explain quantum computing
-Ada: Quantum computing uses quantum mechanics principles for data processing...(confidence: 0.71)
-You: what is the meaning of life
-Ada: That's a profound question that has been contemplated throughout human history...(confidence: 0.63)
+
+## Voice Mode Setup
+
+For full voice functionality, install additional components:
+
+1. **Whisper.cpp** - Speech-to-text
+2. **Piper** - Text-to-speech
+3. **Silero VAD** - Voice activity detection
+
+Configure paths in `config/settings.yaml`:
+
+```yaml
+voice:
+  whisper_path: "/path/to/whisper.cpp"
+  piper_path: "/path/to/piper"
+  vad_model: "silero_vad.onnx"
+  voice_model: "en_US-lessac-medium.onnx"
 ```
 
-Implementation includes:
-- `neural/encoder.py`: Added `LanguageEncoder` class with SentenceTransformers
-- `neural/policy_network.py`: Updated default input dimension to 384 
-- `core/reasoning.py`: Integrated semantic encoding with fallback compatibility
-- `neural/trainer.py`: Updated training to use real language embeddings
-- Backward compatibility with existing checkpoints
+## Web Interface
 
-### Example Log Output
+The `ui/` folder contains a modern web interface:
 
+- Interactive chat interface
+- Visual SiriWave animations
+- Particle effects background
+- Contact management
+- Settings configuration
+- Real-time response animations
+
+Access the web interface at `ui/index.html` in your browser.
+
+## Training
+
+### Standard Training
+```bash
+make train
 ```
-🧭 Goal inferred: research whisper.cpp integration (confidence: 0.85)
-🚀 Executing plan: plan_research_whisper_cpp_123
-🪄 Step 1: Search for information about whisper.cpp integration
-✅ Step 1 completed:本地 files found for 'whisper.cpp integration'...
-🪄 Step 2: Save research findings to notes
-✅ Step 2 completed: Note saved with ID: research_20231027_143022
-✅ Success: True
-📊 Completed: 2/2 steps
-🎯 Reward: +0.82
+
+### Reinforcement Learning
+```bash
+make train-rl
 ```
+
+### Apple Silicon Test
+```bash
+make mps-test
+```
+
+## Architecture
+
+### Core Components
+- `core/` - Reasoning engine and settings
+- `neural/` - Language models and networks
+- `agent/` - Decision-making and execution
+- `planner/` - Goal planning and intent handling
+- `tools/` - Tool registry and implementations
+- `memory/` - Conversation storage and retrieval
+- `persona/` - Personality development
+- `ui/` - Web interface
+- `missions/` - Long-running background tasks
+- `optimizer/` - Self-improvement systems
+- `storage/` - Data persistence
+
+### Available Tools
+- **file_ops** - Read/write/list files
+- **web_search** - Information discovery
+- **summarize** - Content extraction
+- **note** - Journal operations
+- **analyze** - Data interpretation
+
+## Configuration
+
+Edit `config/settings.yaml` to customize:
+
+```yaml
+# General settings
+debug: true
+save_interval: 10
+
+# Memory settings
+memory:
+  max_entries: 10000
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+
+# Persona settings
+persona:
+  update_interval: 20
+  drift_threshold: 0.15
+
+# Mission daemon
+daemon:
+  sleep_interval: 3600  # 1 hour
+  auto_start: false
+
+# Optimizer
+optimizer:
+  enabled: true
+  evolution_generations: 10
+  rollback_safe: true
+
+# Voice interface
+voice:
+  enabled: false
+  input_device: "default"
+  output_device: "default"
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Dependencies**: Ensure all packages are installed with `make setup`
+2. **Voice Mode**: Verify audio device permissions on macOS
+3. **Memory Issues**: Adjust `max_entries` in settings if using limited RAM
+4. **Performance**: Disable optimizer daemon on low-end systems
+
+### Logs
+
+- Main logs: `storage/logs/ada.log`
+- Mission logs: `storage/logs/mission.log`
+- Optimizer logs: `storage/logs/optimizer.log`
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## License
+
+This project is proprietary software. All rights reserved.
+
+## Support
+
+For issues and questions, please use the GitHub issue tracker.
+
+---
+
+**Note**: Ada is continuously evolving. Check back for updates and new features!
