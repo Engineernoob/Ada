@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from .storage import ActionLogger
 
@@ -51,12 +51,12 @@ class Evaluator:
             completed = result.get("completed_steps", 1)
             total = result.get("total_steps", 1)
             completion_rate = completed / max(1, total)
-            
+
             # Base score is the completion rate
             base_score = 0.5 + 0.5 * completion_rate
         else:
             # Failed execution
-            error_msg = result.get("error", "").lower()
+            error_msg = (result.get("error") or "").lower()
             
             # Some failures are less severe than others
             if "timeout" in error_msg:

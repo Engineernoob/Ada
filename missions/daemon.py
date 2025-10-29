@@ -189,6 +189,7 @@ class MissionDaemon:
                     await self.auto_tuner.run_cycle()
                 except Exception:  # noqa: BLE001
                     LOGGER.exception("Auto-tuner cycle failed after mission %s", mission.id)
+                audit_report = self.auditor.audit_checkpoint(mission, curriculum_result.checkpoint_path if curriculum_result else None)
         except Exception as exc:  # noqa: BLE001
             success = False
             message = f"Mission failed: {exc}"
@@ -232,8 +233,11 @@ class MissionDaemon:
 
 
 def build_default_daemon(manager: MissionManager | None = None, auto_tuner: "AutoTuner" | None = None) -> MissionDaemon:
+
+def build_default_daemon(manager: MissionManager | None = None) -> MissionDaemon:
     manager = manager or MissionManager()
     settings = MissionSettings.from_settings()
     trainer = CurriculumTrainer()
     auditor = MissionAuditor()
     return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings, auto_tuner=auto_tuner)
+    return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings)

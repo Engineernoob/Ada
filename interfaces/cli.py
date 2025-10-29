@@ -7,6 +7,7 @@ import asyncio
 import os
 import shlex
 import time
+import shlex
 from typing import Optional
 
 import torch
@@ -575,6 +576,7 @@ def main() -> None:
         "Commands available: /plan <goal>, /goals, /run <plan_id>, /abort <plan_id>, "
         "/mission new \"<goal>\", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona, "
         "/optimize now, /evolve, /metrics [n], /rollback <checkpoint_id>"
+        "/mission new \"<goal>\", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona"
     )
     print("")
     print("💡 Note: Running in fallback mode due to external library compatibility issues.")
