@@ -62,7 +62,9 @@ class VoiceInteractionLoop:
                     self.state.status = "processing"
                     self.state.transcript = transcript
                     live.update(self._render())
-                    response, voice_reward = handler(transcript, result.audio_path, result.audio_data)
+                    response, voice_reward = handler(
+                        transcript, result.audio_path, result.audio_data
+                    )
                     self.state.response = response
                     self.state.reward = voice_reward.reward
                     self.state.tone = voice_reward.tone

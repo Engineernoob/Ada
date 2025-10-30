@@ -9,5 +9,5 @@ TOOLS = {
     "note": lambda t: execute_tool("note", t, tags=["user"]),
     "analyze": lambda q: execute_tool("analyze", q),
     "extract": lambda f: execute_tool("extract", f),
-    "create": lambda t: execute_tool("create", t, tags=["auto"])
+    "create": lambda t: execute_tool("create", t, tags=["auto"]),
 }

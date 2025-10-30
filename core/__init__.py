@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 from .memory import ConversationStore
 from .context_manager import ContextManager
 from .settings import get_setting, load_settings
-from .autonomous_planner import AutonomousPlanner
 
 if TYPE_CHECKING:  # pragma: no cover - only used for type checkers
     from .reasoning import GenerationResult, ReasoningEngine, RewardEngine
@@ -55,4 +54,8 @@ def __getattr__(name: str):
             "RewardEngine": RewardEngine,
         }
         return mapping[name]
+    elif name == "AutonomousPlanner":
+        from .autonomous_planner import AutonomousPlanner
+
+        return AutonomousPlanner
     raise AttributeError(f"module 'core' has no attribute {name!r}")

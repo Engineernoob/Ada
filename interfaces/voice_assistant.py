@@ -12,7 +12,13 @@ from core import ContextManager, ReasoningEngine, get_setting
 from core.event_loop import VoiceInteractionLoop
 from interfaces.speech_input import SpeechInput
 from interfaces.voice_output import VoiceOutput
-from rl import AdaAgent, DialogueEnvironment, ExperienceBuffer, VoiceReward, VoiceRewardAnalyzer
+from rl import (
+    AdaAgent,
+    DialogueEnvironment,
+    ExperienceBuffer,
+    VoiceReward,
+    VoiceRewardAnalyzer,
+)
 
 
 @dataclass
@@ -49,10 +55,14 @@ class VoiceSession:
             voice_component=voice_reward.voice_component,
         )
 
-        record_id = self.context_manager.remember(transcript, ada_response, total_reward)
+        record_id = self.context_manager.remember(
+            transcript, ada_response, total_reward
+        )
         self.context_manager.store.update_reward(record_id, total_reward)
 
-        self.agent.update_policy(state_vector, generation.action_index, total_reward, next_state_vector)
+        self.agent.update_policy(
+            state_vector, generation.action_index, total_reward, next_state_vector
+        )
         _ = self.agent.train_on_batch()
         self.agent.save()
 
@@ -67,7 +77,12 @@ def main() -> None:
     engine = ReasoningEngine()
     memory = ExperienceBuffer()
     environment = DialogueEnvironment()
-    agent = AdaAgent(model=engine.model, memory=memory, action_space=engine.action_space, checkpoint_path=engine.checkpoint_path)
+    agent = AdaAgent(
+        model=engine.model,
+        memory=memory,
+        action_space=engine.action_space,
+        checkpoint_path=engine.checkpoint_path,
+    )
     analyzer = VoiceRewardAnalyzer()
     speaker = VoiceOutput()
     reward_scale = float(get_setting("reinforcement", "reward_scale", default=0.5))

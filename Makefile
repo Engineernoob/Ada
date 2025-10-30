@@ -82,7 +82,7 @@ build-docs:
 
 lint: ensure-venv
 	@echo "🔍 Linting codebase..."
-	$(PYTHON_BIN) -m flake8 interfaces/ core/ memory/ persona/ planner/ tools/ agent/ --extend-ignore=E203,E402,F841
+	$(PYTHON_BIN) -m flake8 interfaces/ core/ memory/ persona/ planner/ tools/ agent/ --extend-ignore=E203,E402,F841,E501,W291,W293
 
 format: ensure-venv
 	@echo "🎨 Formatting code..."

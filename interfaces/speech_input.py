@@ -26,14 +26,16 @@ import torch
 
 import yaml
 
+
 def get_setting(*keys: str, default=None):
     """Local copy of get_setting to avoid circular imports."""
     from pathlib import Path
+
     settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
     try:
-        with open(settings_path, 'r') as f:
+        with open(settings_path, "r") as f:
             settings = yaml.safe_load(f)
-        
+
         node = settings
         for key in keys:
             if isinstance(node, dict) and key in node:
@@ -62,9 +64,13 @@ class VoiceActivityDetector:
         if not torch.cuda.is_available() and not torch.backends.mps.is_available():
             device = torch.device("cpu")
         else:
-            device = torch.device("mps" if torch.backends.mps.is_available() else "cuda")
+            device = torch.device(
+                "mps" if torch.backends.mps.is_available() else "cuda"
+            )
         try:
-            bundle: Any = torch.hub.load("snakers4/silero-vad", model="silero_vad", source="github")
+            bundle: Any = torch.hub.load(
+                "snakers4/silero-vad", model="silero_vad", source="github"
+            )
         except Exception:
             self._silero_model = None
             return
@@ -126,7 +132,9 @@ class WhisperCppTranscriber:
             str(output_path),
         ]
         try:
-            subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(
+                command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
         except (subprocess.CalledProcessError, FileNotFoundError):
             return ""
         txt_path = output_path.with_suffix(".txt")
@@ -145,7 +153,9 @@ class SpeechInput:
         silence_blocks: int = 4,
     ) -> None:
         if sd is None or sf is None:
-            raise VoiceCaptureUnavailable("sounddevice and soundfile packages are required for speech capture")
+            raise VoiceCaptureUnavailable(
+                "sounddevice and soundfile packages are required for speech capture"
+            )
         self.sample_rate = sample_rate
         self.block_size = int(sample_rate * block_duration)
         self.silence_blocks = silence_blocks
@@ -153,7 +163,9 @@ class SpeechInput:
         self.vad = VoiceActivityDetector(sample_rate)
         self.transcriber = WhisperCppTranscriber()
 
-    def _callback(self, indata: np.ndarray, frames: int, time_info, status) -> None:  # pragma: no cover
+    def _callback(
+        self, indata: np.ndarray, frames: int, time_info, status
+    ) -> None:  # pragma: no cover
         if status:
             print(status)
         self._queue.put(indata.copy())

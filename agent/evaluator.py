@@ -13,7 +13,9 @@ class Evaluator:
         self.logger = logger or ActionLogger()
         self.evaluation_history: List[Dict[str, Any]] = []
 
-    def assess(self, goal: str, result: Dict[str, Any], context: str | None = None) -> float:
+    def assess(
+        self, goal: str, result: Dict[str, Any], context: str | None = None
+    ) -> float:
         """
         Evaluate the outcome of an action or plan against its goal.
         Returns a reward score between -1.0 (failure) and 1.0 (success).
@@ -24,7 +26,7 @@ class Evaluator:
         base_score = self._calculate_base_score(goal, result)
         context_modifier = self._calculate_context_modifier(goal, context)
         quality_modifier = self._calculate_quality_modifier(result)
-        
+
         final_score = base_score + context_modifier + quality_modifier
         final_score = max(-1.0, min(1.0, final_score))
 
@@ -36,7 +38,7 @@ class Evaluator:
             "context_modifier": context_modifier,
             "quality_modifier": quality_modifier,
             "final_score": final_score,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         self.evaluation_history.append(evaluation_record)
@@ -57,7 +59,7 @@ class Evaluator:
         else:
             # Failed execution
             error_msg = (result.get("error") or "").lower()
-            
+
             # Some failures are less severe than others
             if "timeout" in error_msg:
                 base_score = -0.3
@@ -81,13 +83,18 @@ class Evaluator:
         modifier = 0.0
 
         # Positive modifiers for context-goal alignment
-        if any(word in context_lower for word in ["user asked", "user wants", "explicit request"]):
+        if any(
+            word in context_lower
+            for word in ["user asked", "user wants", "explicit request"]
+        ):
             modifier += 0.1
 
         if any(word in goal_lower for word in ["important", "urgent", "critical"]):
             modifier += 0.1
 
-        if "follow-up" in context_lower and any(word in goal_lower for word in ["research", "learn", "explore"]):
+        if "follow-up" in context_lower and any(
+            word in goal_lower for word in ["research", "learn", "explore"]
+        ):
             modifier += 0.2
 
         # Negative modifiers for context mismatches
@@ -114,24 +121,29 @@ class Evaluator:
         output = result.get("output", "")
         if output:
             output_length = len(output)
-            
+
             # Penalize very short or empty outputs
             if output_length < 10:
                 modifier -= 0.1
             # Reward detailed outputs
             elif output_length > 500:
                 modifier += 0.1
-            
+
             # Content quality indicators
             output_lower = output.lower()
             if "error" in output_lower or "failed" in output_lower:
                 modifier -= 0.2
-            elif any(word in output_lower for word in ["success", "completed", "found", "result"]):
+            elif any(
+                word in output_lower
+                for word in ["success", "completed", "found", "result"]
+            ):
                 modifier += 0.1
 
         return modifier
 
-    def evaluate_plan(self, plan_id: str, execution_result: Dict[str, Any]) -> Dict[str, Any]:
+    def evaluate_plan(
+        self, plan_id: str, execution_result: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Comprehensive evaluation of an entire plan execution."""
         goal = execution_result.get("goal", "Unknown goal")
         success = execution_result.get("success", False)
@@ -145,18 +157,21 @@ class Evaluator:
         step_evaluations = []
         for step_result in steps:
             step_reward = self.assess(
-                step_result.get("description", "Step execution"),
-                step_result
+                step_result.get("description", "Step execution"), step_result
             )
-            step_evaluations.append({
-                "step": step_result.get("step_number", 0),
-                "tool": step_result.get("tool", "unknown"),
-                "reward": step_reward
-            })
+            step_evaluations.append(
+                {
+                    "step": step_result.get("step_number", 0),
+                    "tool": step_result.get("tool", "unknown"),
+                    "reward": step_reward,
+                }
+            )
 
         # Consistency check: step rewards should align with overall reward
         if step_evaluations:
-            avg_step_reward = sum(se["reward"] for se in step_evaluations) / len(step_evaluations)
+            avg_step_reward = sum(se["reward"] for se in step_evaluations) / len(
+                step_evaluations
+            )
             consistency_score = 1.0 - abs(base_reward - avg_step_reward)
         else:
             consistency_score = 0.5
@@ -170,7 +185,7 @@ class Evaluator:
             "step_evaluations": step_evaluations,
             "consistency_score": consistency_score,
             "adjusted_reward": base_reward * consistency_score,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         self.logger.log_plan_evaluation(plan_evaluation)
@@ -179,23 +194,25 @@ class Evaluator:
     def get_evaluation_report(self, limit: int = 5) -> str:
         """Generate a human-readable report of recent evaluations."""
         recent_evaluations = self.evaluation_history[-limit:]
-        
+
         if not recent_evaluations:
             return "No evaluations recorded yet."
 
-        report_lines = [f"Recent Evaluation Report ({len(recent_evaluations)} most recent):"]
+        report_lines = [
+            f"Recent Evaluation Report ({len(recent_evaluations)} most recent):"
+        ]
         report_lines.append("=" * 50)
 
         for i, eval_record in enumerate(recent_evaluations, 1):
             score = eval_record["final_score"]
             emoji = "🟢" if score > 0.5 else "🟡" if score > 0 else "🔴"
-            
+
             report_lines.append(f"\n{i}. {emoji} Score: {score:.2f}")
             report_lines.append(f"   Goal: {eval_record['goal'][:60]}...")
-            
+
             if eval_record.get("result_summary"):
                 report_lines.append(f"   Result: {eval_record['result_summary']}...")
-            
+
             report_lines.append(f"   Time: {eval_record['timestamp']}")
 
         # Summary statistics
@@ -203,7 +220,9 @@ class Evaluator:
         if scores:
             avg_score = sum(scores) / len(scores)
             report_lines.append(f"\n📊 Average Score: {avg_score:.2f}")
-            report_lines.append(f"📈 Success Rate: {sum(1 for s in scores if s > 0) / len(scores):.1%}")
+            report_lines.append(
+                f"📈 Success Rate: {sum(1 for s in scores if s > 0) / len(scores):.1%}"
+            )
 
         return "\n".join(report_lines)
 
@@ -213,13 +232,15 @@ class Evaluator:
             return {"message": "Insufficient data for insights"}
 
         # Analyze patterns
-        high_score_evals = [e for e in self.evaluation_history if e["final_score"] > 0.5]
+        high_score_evals = [
+            e for e in self.evaluation_history if e["final_score"] > 0.5
+        ]
         low_score_evals = [e for e in self.evaluation_history if e["final_score"] < 0]
 
         # Extract common themes
         high_score_contexts = set()
         low_score_contexts = set()
-        
+
         for eval_record in high_score_evals:
             context = eval_record.get("context", "")
             if context:
@@ -234,14 +255,21 @@ class Evaluator:
 
         insights = {
             "total_evaluations": len(self.evaluation_history),
-            "average_score": sum(e["final_score"] for e in self.evaluation_history) / len(self.evaluation_history),
+            "average_score": sum(e["final_score"] for e in self.evaluation_history)
+            / len(self.evaluation_history),
             "success_patterns": list(high_score_contexts - low_score_contexts)[:10],
             "failure_patterns": list(low_score_contexts - high_score_contexts)[:10],
-            "recommendations": [
-                "Focus on actions with clear user requests",
-                "Prefer quick-execution tools for time-sensitive goals",
-                "Ensure input validation for external API calls"
-            ] if sum(e["final_score"] for e in self.evaluation_history) / len(self.evaluation_history) < 0.3 else []
+            "recommendations": (
+                [
+                    "Focus on actions with clear user requests",
+                    "Prefer quick-execution tools for time-sensitive goals",
+                    "Ensure input validation for external API calls",
+                ]
+                if sum(e["final_score"] for e in self.evaluation_history)
+                / len(self.evaluation_history)
+                < 0.3
+                else []
+            ),
         }
 
         return insights

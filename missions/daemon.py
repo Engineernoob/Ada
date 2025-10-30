@@ -233,11 +233,8 @@ class MissionDaemon:
 
 
 def build_default_daemon(manager: MissionManager | None = None, auto_tuner: "AutoTuner" | None = None) -> MissionDaemon:
-
-def build_default_daemon(manager: MissionManager | None = None) -> MissionDaemon:
     manager = manager or MissionManager()
     settings = MissionSettings.from_settings()
     trainer = CurriculumTrainer()
     auditor = MissionAuditor()
     return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings, auto_tuner=auto_tuner)
-    return MissionDaemon(manager=manager, trainer=trainer, auditor=auditor, settings=settings)

@@ -7,7 +7,7 @@ import asyncio
 import os
 import shlex
 import time
-import shlex
+
 from typing import Optional
 
 import torch
@@ -116,14 +116,16 @@ class AdaSession:
             base_reward=base_reward,
             memory_id=generation.memory_id,
         )
-        
+
         # Increment dialog count and check for persona updates
         self.dialog_count += 1
-        if hasattr(self.engine.persona, 'needs_update') and self.engine.persona.needs_update(self.dialog_count):
+        if hasattr(
+            self.engine.persona, "needs_update"
+        ) and self.engine.persona.needs_update(self.dialog_count):
             if self.engine.update_persona_from_memories():
                 print(f"🎭 Persona updated after {self.dialog_count} dialogs")
                 self.dialog_count = 0  # Reset counter after update
-        
+
         confidence = generation.confidence
         return f"{ada_response} (confidence: {confidence:.2f})"
 
@@ -135,7 +137,9 @@ class AdaSession:
             return "Provide feedback with '/rate good' or '/rate bad'."
 
         feedback = parts[1].strip()
-        feedback_reward = self.reward_engine.compute(feedback, self.pending.user_input, self.pending.ada_response)
+        feedback_reward = self.reward_engine.compute(
+            feedback, self.pending.user_input, self.pending.ada_response
+        )
         final_reward = (
             feedback_reward if feedback_reward != 0.0 else self.pending.base_reward
         )
@@ -168,16 +172,25 @@ class AdaSession:
 
         # Update episodic memory with feedback reward
         if self.pending.memory_id > 0:
-            updated = self.engine.update_memory_reward(self.pending.memory_id, final_reward)
+            updated = self.engine.update_memory_reward(
+                self.pending.memory_id, final_reward
+            )
             if updated:
                 print(f"💾 Memory reward updated: {final_reward:+.2f}")
 
         self.pending = None
-        
+
         # Trigger autonomous planning after feedback
-        autonomous_result = self.autonomous_planner.infer_and_plan(trigger_after_conversation=True)
-        if autonomous_result["status"] == "processed" and autonomous_result["intents_found"] > 0:
-            print(f"\n🤖 Autonomous planning: detected {autonomous_result['intents_found']} potential goals")
+        autonomous_result = self.autonomous_planner.infer_and_plan(
+            trigger_after_conversation=True
+        )
+        if (
+            autonomous_result["status"] == "processed"
+            and autonomous_result["intents_found"] > 0
+        ):
+            print(
+                f"\n🤖 Autonomous planning: detected {autonomous_result['intents_found']} potential goals"
+            )
 
         if self.metrics_tracker:
             grad_norm = float(getattr(self.agent, "last_grad_norm", 0.0) or 0.0)
@@ -198,12 +211,12 @@ class AdaSession:
     def _handle_planning_command(self, command: str) -> str:
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
-            return "Usage: /plan \"<goal>\" or /plan <goal>"
-        
+            return 'Usage: /plan "<goal>" or /plan <goal>'
+
         goal = parts[1].strip()
         if not goal:
             return "Please provide a goal to plan for."
-        
+
         result = self.autonomous_planner.plan_from_command(goal)
         if result["status"] == "plan_created":
             plan = result["plan"]
@@ -221,12 +234,16 @@ class AdaSession:
         goals = self.autonomous_planner.get_goals()
         if not goals:
             return "No goals recorded yet."
-        
+
         response = "🎯 Recent goals:\n"
         for goal in goals[:5]:
-            status_icon = "✅" if goal["status"] == "completed" else "⏳" if goal["status"] == "created" else "❌"
+            status_icon = (
+                "✅"
+                if goal["status"] == "completed"
+                else "⏳" if goal["status"] == "created" else "❌"
+            )
             response += f"  {status_icon} {goal['goal'][:50]}... (priority: {goal['priority']:.2f})\n"
-        
+
         response += f"\nTotal goals: {len(goals)}"
         return response
 
@@ -234,16 +251,16 @@ class AdaSession:
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
             return "Usage: /run <plan_id>"
-        
+
         plan_id = parts[1].strip()
         if not plan_id:
             return "Please provide a plan ID to run."
-        
+
         result = self.autonomous_planner.execute_plan(plan_id)
         if result["status"] == "executed":
             execution = result["execution"]
             evaluation = result["evaluation"]
-            
+
             response = f"🚀 Plan {plan_id} execution:\n"
             response += f"✅ Success: {execution['success']}\n"
             response += f"📊 Completed: {execution['completed_steps']}/{execution['total_steps']} steps\n"
@@ -254,24 +271,24 @@ class AdaSession:
 
     def _handle_memory_command(self) -> str:
         stats = self.engine.get_memory_stats()
-        
+
         if not stats.get("memory_enabled", False):
             return "❌ Episodic memory is disabled"
-        
+
         response = "🧠 Episodic Memory Status:\n"
         response += f"📊 Total memories: {stats.get('total_memories', 0)}\n"
         response += f"⭐ Average reward: {stats.get('average_reward', 0):.3f}\n"
         response += f"🔥 Max reward: {stats.get('max_reward', 0):.3f}\n"
         response += f"❄️ Min reward: {stats.get('min_reward', 0):.3f}\n"
-        
+
         return response
 
     def _handle_persona_command(self) -> str:
         stats = self.engine.get_persona_stats()
-        
+
         if not stats.get("persona_enabled", False):
             return "❌ Persona system is disabled"
-        
+
         response = self.engine.persona.get_persona_summary()
         return response
 
@@ -287,7 +304,7 @@ class AdaSession:
         action = parts[1].lower()
         if action == "new":
             if len(parts) < 3:
-                return "Usage: /mission new \"<goal>\""
+                return 'Usage: /mission new "<goal>"'
             goal = " ".join(parts[2:])
             mission = self.mission_manager.create_mission(goal)
             return f"🗒️ Mission {mission.id} created for goal: {mission.goal}"
@@ -319,9 +336,7 @@ class AdaSession:
             status_icon = "✅" if result.success else "❌"
             details = ""
             if result.audit:
-                details = (
-                    f" | Reward Δ {result.audit.reward_delta:+.2f} Drift {result.audit.drift:.2f}"
-                )
+                details = f" | Reward Δ {result.audit.reward_delta:+.2f} Drift {result.audit.drift:.2f}"
             return f"{status_icon} {result.message}{details}"
         return "Unknown /mission subcommand."
 
@@ -339,16 +354,18 @@ class AdaSession:
             self.mission_daemon.stop_background()
             return "🛑 Mission daemon stopped."
         if action == "status":
-            return "🟢 Daemon running" if self.mission_daemon.is_running else "⚪️ Daemon idle"
+            return (
+                "🟢 Daemon running"
+                if self.mission_daemon.is_running
+                else "⚪️ Daemon idle"
+            )
         return "Unknown /daemon subcommand."
 
     def _handle_audit_command(self) -> str:
         if not self.mission_daemon:
             return "Mission daemon is not configured."
         report = self.mission_daemon.run_audit_blocking()
-        return (
-            f"📈 Latest checkpoint audited. Reward Δ {report.reward_delta:+.2f} | Drift {report.drift:.2f}"
-        )
+        return f"📈 Latest checkpoint audited. Reward Δ {report.reward_delta:+.2f} | Drift {report.drift:.2f}"
 
     def _handle_optimize_command(self, command: str) -> str:
         if not self.auto_tuner:
@@ -437,14 +454,14 @@ class AdaSession:
 
 def main() -> None:
     print("Initializing Ada core systems...")
-    
+
     try:
         context = ContextManager()
         print("  ✓ Context manager loaded")
     except Exception as e:
         print(f"  ❌ Context manager failed: {e}")
         return
-    
+
     try:
         # Use TextEncoder by default to avoid sentence-transformers import issues
         engine = ReasoningEngine(use_language_encoder=False)
@@ -452,52 +469,64 @@ def main() -> None:
     except Exception as e:
         print(f"  ❌ Reasoning engine failed: {e}")
         return
-    
+
     try:
         reward_engine = RewardEngine()
         print("  ✓ Reward engine loaded")
     except Exception as e:
         print(f"  ❌ Reward engine failed: {e}")
         return
-        
+
     try:
         environment = DialogueEnvironment()
         print("  ✓ Dialogue environment loaded")
     except Exception as e:
         print(f"  ❌ Dialogue environment failed: {e}")
         return
-        
+
     try:
         memory = ExperienceBuffer()
         print("  ✓ Experience buffer loaded")
     except Exception as e:
         print(f"  ❌ Experience buffer failed: {e}")
         return
-        
+
     try:
-        agent = AdaAgent(model=engine.model, memory=memory, action_space=engine.action_space, checkpoint_path=engine.checkpoint_path)
+        agent = AdaAgent(
+            model=engine.model,
+            memory=memory,
+            action_space=engine.action_space,
+            checkpoint_path=engine.checkpoint_path,
+        )
         print("  ✓ Ada agent created")
     except Exception as e:
         print(f"  ❌ Ada agent failed: {e}")
         print("  This may be due to model incompatibility. Trying fallback...")
+
         # Create a minimal agent without neural model
         class MinimalAgent:
             def __init__(self):
                 self.action_space = len(engine.phrases)
                 self.memory = memory
                 self.model = engine.model
+
             def update_policy(self, *args, **kwargs):
                 return None
+
             def train_on_batch(self, *args, **kwargs):
                 return None
+
             def save(self):
                 pass
+
         agent = MinimalAgent()
         print("  ✓ Minimal fallback agent created")
-    
+
     try:
         # Initialize autonomous planner with persona integration
-        autonomous_planner = AutonomousPlanner(context_manager=context, reasoning_engine=engine)
+        autonomous_planner = AutonomousPlanner(
+            context_manager=context, reasoning_engine=engine
+        )
         print("  ✓ Autonomous planner loaded")
     except Exception as e:
         print(f"  ❌ Autonomous planner failed: {e}")
@@ -561,28 +590,30 @@ def main() -> None:
     except Exception as e:
         print(f"  ❌ Session failed: {e}")
         return
-    
+
     try:
         loop = EventLoop()
         print("  ✓ Event loop ready")
     except Exception as e:
         print(f"  ❌ Event loop failed: {e}")
         return
-    
+
     print("")
     print("🎉 Ada initialization complete!")
     print("Ada: Hello Taahirah, systems ready to learn. Type 'quit' to exit.")
     print(
         "Commands available: /plan <goal>, /goals, /run <plan_id>, /abort <plan_id>, "
-        "/mission new \"<goal>\", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona, "
+        '/mission new "<goal>", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona, '
         "/optimize now, /evolve, /metrics [n], /rollback <checkpoint_id>"
-        "/mission new \"<goal>\", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona"
+        '/mission new "<goal>", /mission list, /mission run <id>, /daemon start, /audit, /memory, /persona'
     )
     print("")
-    print("💡 Note: Running in fallback mode due to external library compatibility issues.")
+    print(
+        "💡 Note: Running in fallback mode due to external library compatibility issues."
+    )
     print("   Core functionality (memory, persona, planning) is fully operational.")
     print("")
-    
+
     try:
         loop.run(session.handle_input)
     except KeyboardInterrupt:

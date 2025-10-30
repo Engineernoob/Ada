@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Optional
 
 
-
 try:
     import sounddevice as sd
 except ImportError:  # pragma: no cover
@@ -22,14 +21,16 @@ except ImportError:  # pragma: no cover
 
 import yaml
 
+
 def get_setting(*keys: str, default=None):
     """Local copy of get_setting to avoid circular imports."""
     from pathlib import Path
+
     settings_path = Path(__file__).resolve().parents[1] / "config" / "settings.yaml"
     try:
-        with open(settings_path, 'r') as f:
+        with open(settings_path, "r") as f:
             settings = yaml.safe_load(f)
-        
+
         node = settings
         for key in keys:
             if isinstance(node, dict) and key in node:
@@ -84,7 +85,12 @@ class VoiceOutput:
             str(output_path),
         ]
         try:
-            process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
             assert process.stdin is not None
             process.stdin.write(text.encode("utf-8"))
             process.stdin.close()

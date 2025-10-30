@@ -70,7 +70,7 @@ class ConversationStore:
         if not records:
             return ""
         lines = [
-            f"You: {record.user_input}\nAda: {record.ada_response}" 
+            f"You: {record.user_input}\nAda: {record.ada_response}"
             for record in reversed(records)
         ]
         return "\n".join(lines)
