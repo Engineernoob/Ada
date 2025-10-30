@@ -23,51 +23,57 @@ except ImportError:
     PERSONA_AVAILABLE = False
     MetaPersona = None
 
-# Disable neural modules completely due to transformers issues
-NEURAL_AVAILABLE = False
-print("Note: Using fallback mode due to transformers dependency issues")
+# Check neural module availability
+try:
+    from neural.encoder import TextEncoder
+    from neural.policy_network import AdaCore, get_device, load_model
+    from neural.reward_model import simple_reward
+    NEURAL_AVAILABLE = True
+    print("✅ Neural modules loaded successfully")
+    
+    # LanguageEncoder with graceful loading
+    try:
+        from neural.encoder import LanguageEncoder
+        print("✅ Sentence transformers available")
+    except ImportError:
+        LanguageEncoder = None
+        print("⚠️  Sentence transformers unavailable (using fallback)")
+        
+except ImportError as e:
+    NEURAL_AVAILABLE = False
+    print(f"⚠️  Neural modules unavailable: {e}")
+    
+    # Create fallbacks
+    DEFAULT_embedding_DIM = 384  # Match expected input dimension
+    
+    class TextEncoder:
+        def __init__(self, dim=None):
+            self.dim = dim or DEFAULT_embedding_DIM
 
-# Create minimal fallbacks with consistent dimensions
-DEFAULT_embedding_DIM = 384  # Match expected input dimension
+        def encode(self, text):
+            import hashlib
+            import numpy as np
 
+            tokens = text.lower().split()
+            vector = np.zeros(self.dim, dtype=np.float32)
+            for token in tokens:
+                digest = hashlib.blake2b(token.encode("utf-8"), digest_size=4).hexdigest()
+                idx = int(digest, 16) % self.dim
+                vector[idx] += 1.0
+            return vector.tolist()
 
-class TextEncoder:
-    def __init__(self, dim=None):
-        # Use consistent dimension to match fallback model expectations
-        self.dim = dim or DEFAULT_embedding_DIM
+    LanguageEncoder = None
+    AdaCore = None
 
-    def encode(self, text):
-        import hashlib
-        import numpy as np
+    def get_device():
+        import torch
+        return torch.device("cpu")
 
-        tokens = text.lower().split()
-        vector = np.zeros(self.dim, dtype=np.float32)
-        for token in tokens:
-            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=4).hexdigest()
-            idx = int(digest, 16) % self.dim
-            vector[idx] += 1.0
-        # Convert to list to maintain consistency
-        return vector.tolist()
+    def load_model(path):
+        return None
 
-
-LanguageEncoder = None
-AdaCore = None
-
-
-# Safe fallback functions that avoid model loading
-def get_device():
-    import torch
-
-    return torch.device("cpu")
-
-
-def load_model(path):
-    # Always return None to force fallback model usage
-    return None
-
-
-def simple_reward(a, b):
-    return 0.5
+    def simple_reward(a, b):
+        return 0.5
 
 
 PHRASES = [

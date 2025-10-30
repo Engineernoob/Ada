@@ -47,11 +47,28 @@ class LanguageEncoder:
     """Converts text into semantic embeddings using SentenceTransformers."""
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
-        if SENTENCE_TRANSFORMERS_AVAILABLE:
-            self.model = SentenceTransformer(model_name)
-            self.embedding_dim = self.model.get_sentence_embedding_dimension()
-        else:
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
             raise ImportError("SentenceTransformers not available. Please install sentence-transformers package.")
+        
+        self.model_name = model_name
+        self._model = None
+        self._embedding_dim = None
+    
+    @property
+    def model(self):
+        if self._model is None:
+            print(f"Loading SentenceTransformer model: {self.model_name}...")
+            self._model = SentenceTransformer(self.model_name)
+            self._embedding_dim = self._model.get_sentence_embedding_dimension()
+            print("✅ Model loaded successfully")
+        return self._model
+    
+    @property 
+    def embedding_dim(self):
+        if self._embedding_dim is None:
+            # Access model property to trigger loading
+            _ = self.model
+        return self._embedding_dim
     
     def encode(self, text: str) -> torch.Tensor:
         """Encode a single text string into a tensor embedding."""
