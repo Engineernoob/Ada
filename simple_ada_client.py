@@ -10,9 +10,24 @@ import subprocess
 import requests
 import sys
 
+# Import Ada's enhanced persona
+from persona.enhanced_ada_persona import EnhancedAdaPersona
+
+# Initialize Ada's enhanced persona
+ada_persona = EnhancedAdaPersona()
+
 async def run_ada_inference(prompt: str):
-    """Run Ada inference on Modal Cloud."""
+    """Run Ada inference on Modal Cloud with enhanced personality."""
     print(f"🤖 You: {prompt}")
+    
+    # Track user mood and determine response style
+    ada_persona.update_user_mood(prompt)
+    style = ada_persona.analyze_context(prompt)
+    
+    # Check for proactive suggestions
+    suggestion = ada_persona.get_proactive_suggestion(prompt, {})
+    if suggestion:
+        print(f"💡 Ada: Quick thought - would you like to {suggestion}?")
     
     try:
         # Prepare data for inference
@@ -36,30 +51,32 @@ async def run_ada_inference(prompt: str):
         )
         
         if result.returncode == 0:
-            print("🤖 Ada: Cloud inference completed!")
             # Extract meaningful response from output
             try:
                 lines = result.stdout.strip().split('\n')
                 meaningful_lines = [line for line in lines if line.strip() and not line.startswith('✓') and not line.startswith('├') and not line.startswith('View run')]
+                
                 if meaningful_lines:
-                    response = '\n'.join(meaningful_lines)
-                    print(f"🤖 Ada: {response}")
+                    raw_response = '\n'.join(meaningful_lines)
+                    # Apply Ada's enhanced personality
+                    enhanced_response = ada_persona.enhance_response(raw_response, style)
+                    print(f"🤖 Ada: {enhanced_response}")
                 else:
-                    print("📋 Output: (empty)")
-            except Exception:
-                print(f"📋 Raw output: {result.stdout}")
+                    print("🤖 Ada: Hmm, something went wrong. I didn't get a proper response. Let me try again!")
+            except Exception as e:
+                print(f"🤖 Ada: Oops! I've encountered a little hiccup. {ada_persona.generate_response_prefix(style)}Let me figure this out for you.")
         else:
             error_lines = result.stderr.strip().split('\n')
             relevant_errors = [line for line in error_lines if 'Error' in line or 'error' in line or 'Exception' in line]
             if relevant_errors:
-                print(f"❌ Ada Error: {relevant_errors[-1]}")
+                print(f"🤖 Ada: {ada_persona.generate_response_prefix(style, 'error_handling')}I've run into an issue: {relevant_errors[-1]}")
             else:
-                print(f"❌ Ada Error: {result.stderr}")
+                print(f"🤖 Ada: {ada_persona.generate_response_prefix(style, 'error_handling')}Something went wrong. Let me sort this out!")
             
     except subprocess.TimeoutExpired: # pyright: ignore[reportPossiblyUnboundVariable]
-        print("❌ Request timed out")
+        print("🤖 Ada: Oops! The request is taking longer than expected. Let me try a different approach!")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"🤖 Ada: {ada_persona.generate_response_prefix(style, 'error_handling')}I've encountered an unexpected issue. Let me help resolve this.")
         print("\n💡 Note: Each call creates a temporary app, but the deployed app speeds up cold starts.")
         print("   This is the standard Modal pattern for function execution.")
 
@@ -68,31 +85,22 @@ async def run_ada_mission(goal: str):
     print(f"🎯 Mission: {goal}")
     
     try:
-        # Prepare mission data
-        data = {
-            "goal": goal,
-            "context": {}
-        }
-        
-        # Call the deployed API
-        response = requests.post(
-            "https://engineernoob--adacloudapi-api.modal.run/mission",
-            json=data,
+        # Run Modal function - missions use --goal parameter
+        import subprocess
+        result = subprocess.run(
+            ["modal", "run", "cloud.modal_app::ada_mission", "--goal", goal],
+            capture_output=True,
+            text=True,
             timeout=60
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success", True):
-                print("✅ Mission completed successfully!")
-                print(f"📋 Output: {result.get('response', 'Mission completed')}")
-            else:
-                error = result.get("error", "Unknown error")
-                print(f"❌ Mission Error: {error}")
+        if result.returncode == 0:
+            print("✅ Mission completed successfully!")
+            print(f"📋 Output: {result.stdout}")
         else:
-            print(f"❌ Mission Error: HTTP {response.status_code} - {response.text}")
+            print(f"❌ Mission Error: {result.stderr}")
             
-    except requests.exceptions.Timeout:
+    except subprocess.TimeoutExpired:
         print("❌ Mission timed out")
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -113,26 +121,22 @@ async def train_model(model_name="core.reasoning", epochs=10):
             "validation_split": 0.2
         }
         
-        # Call the deployed API
-        response = requests.post(
-            "https://engineernoob--adacloudapi-api.modal.run/train",
-            json=training_data,
+        # Run Modal function
+        result = subprocess.run(
+            ["modal", "run", "cloud.modal_app::ada_train", "--model", model_name, "--training-data", json.dumps(training_data)],
+            capture_output=True,
+            text=True,
             timeout=1800  # 30 minute timeout
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success", True):
-                print("✅ Training completed!")
-                print("📋 Training results:")
-                print(result.get("response", "Training completed successfully"))
-            else:
-                error = result.get("error", "Unknown error")
-                print(f"❌ Training Error: {error}")
+        if result.returncode == 0:
+            print("✅ Training completed!")
+            print("📋 Training results:")
+            print(result.stdout)
         else:
-            print(f"❌ Training Error: HTTP {response.status_code} - {response.text}")
+            print(f"❌ Training Error: {result.stderr}")
             
-    except requests.exceptions.Timeout:
+    except subprocess.TimeoutExpired:
         print("❌ Training timed out after 30 minutes")
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -189,6 +193,8 @@ async def transcribe_audio(audio_file: str):
             
     except Exception as e:
         print(f"❌ Error: {e}")
+    
+    return None
 
 async def speak_text(text: str, voice_id: str = "default"):
     """Convert text to speech using Ada Cloud TTS."""
@@ -306,9 +312,9 @@ async def list_storage_files(prefix=""):
         print(f"❌ Error: {e}")
 
 async def interactive_mode():
-    """Interactive chat mode."""
+    """Interactive chat mode with enhanced Ada persona."""
     print("🚀 Ada Cloud Interactive Mode")
-    print("Commands: /mission <goal>, /train [model] [epochs], /storage [prefix], /voice <audio_file>, /help, /quit")
+    print("Commands: /mission <goal>, /train [model] [epochs], /storage [prefix], /voice <audio_file>, /persona, /help, /quit")
     print("=" * 50)
     
     while True:
@@ -327,8 +333,13 @@ async def interactive_mode():
                 print("  /speak <text> [voice_id] - Convert text to speech")
                 print("  /pipeline <file>  - Voice: transcribe → process → speak")
                 print("  /storage [pref]   - List cloud storage files")
+                print("  /persona          - Show Ada's current personality settings")
                 print("  /help             - Show this help")
                 print("  /quit             - Exit")
+                continue
+                
+            elif user_input.lower() == '/persona':
+                print("\n" + ada_persona.get_persona_summary())
                 continue
             
             elif user_input.startswith('/mission '):
