@@ -1,240 +1,210 @@
-"""Modal application entrypoint and core function registry for Ada Cloud.
-
-This module defines the main Modal app and functions for inference, training,
-optimization, and mission execution on the cloud platform.
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-import json
-import logging
-
 import modal
+import os
+from typing import Dict, Any, Optional
+from cloud.inference_service import ada_infer as core_infer
+from cloud.optimizer_service import cloud_optimize as core_optimize
+from cloud.mission_service import cloud_run_mission as core_mission
 
-logger = logging.getLogger(__name__)
+# Create Modal App (use AdaCloudFinal to avoid conflicts)
+app = modal.App("AdaCloudFinal")
 
-# Modal app definition
-app = modal.App("AdaCloud")
+# Define shared Modal image
+AdaCloudImage = (
+    modal.Image.debian_slim()
+    .pip_install_from_requirements("cloud/requirements_cloud.txt")
+    .env({
+        "TORCH_HOME": "/root/.cache/torch",
+        "TRANSFORMERS_CACHE": "/root/.cache/huggingface"
+    })
+)
 
-# Volume for persistent storage
+# Create storage volume (exists)
 storage_volume = modal.Volume.from_name("ada-cloud-storage", create_if_missing=True)
 
-# Staged images to avoid deployment timeout
-base_image = modal.Image.debian_slim(python_version="3.11").pip_install([
-    "numpy",
-    "boto3",
-    "fastapi",
-    "pydantic",
-    "aiohttp",
-])
+# Create secrets for Wasabi storage
+ada_secrets = modal.Secret.from_dict({
+    "WASABI_KEY_ID": os.environ.get("WASABI_KEY_ID", "4OIHFFRH7L9I49TZ2UQD"),
+    "WASABI_SECRET": os.environ.get("WASABI_SECRET", "h68fdXXztPem0E0yCUCb8nYpmooQKtIAiUfctXGn"),
+    "WASABI_ENDPOINT": os.environ.get("WASABI_ENDPOINT", "https://s3.wasabisys.com"),
+    "ADA_CLOUD_ENDPOINT": os.environ.get("ADA_CLOUD_ENDPOINT", "https://engineernoob--adacloudapi-api.modal.run"),
+    "ADA_API_KEY": os.environ.get("ADA_API_KEY", "placeholder-key-for-deployment"),
+    "ADA_CLOUD_TIMEOUT": os.environ.get("ADA_CLOUD_TIMEOUT", "300"),
+    "ADA_CLOUD_MAX_RETRIES": os.environ.get("ADA_CLOUD_MAX_RETRIES", "3"),
+    "ADA_CLOUD_RETRY_DELAY": os.environ.get("ADA_CLOUD_RETRY_DELAY", "1.0"),
+    "ADA_CLOUD_ENABLE_STREAMING": os.environ.get("ADA_CLOUD_ENABLE_STREAMING", "true"),
+})
 
-# Heavier image for AI/ML functions
-ml_image = base_image.pip_install([
-    "torch",
-    "transformers",
-    "openai-whisper",
-    "coqui-tts",
-])
-
-# Use base image for deployment to avoid timeout
-image = base_image
-
-# GPU class for heavy compute tasks
-gpu_class = "A10G"
-
-# Import cloud services
-from cloud.inference_service import ada_infer
-from cloud.mission_service import cloud_run_mission
-from cloud.optimizer_service import cloud_optimize
-from cloud.storage_service import cloud_upload_checkpoint, cloud_download_model
-
-
-# Inference service - wraps cloud inference service
+# Core Inference Function
 @app.function(
-    image=ml_image,
-    gpu=gpu_class,
+    image=AdaCloudImage, 
+    gpu="A10G",
     volumes={"/root/ada/storage": storage_volume},
-    timeout=600,
-    memory=8192,
-    scaledown_window=300,  # Auto-scale to zero when idle
+    secrets=[ada_secrets]
 )
-def ada_infer_modal(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Modal wrapper for cloud inference service.
+def ada_infer(data):
+    import json
+    if isinstance(data, str):
+        data = json.loads(data)
+    return core_infer(data)
+
+# Optimizer Function  
+@app.function(
+    image=AdaCloudImage, 
+    gpu="A10G",
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_optimize(params):
+    import json
+    if isinstance(params, str):
+        params = json.loads(params)
+    return await core_optimize(params)
+
+# Mission Daemon Function
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_mission(goal):
+    # goal is expected to be a string param directly
+    return await core_mission(goal)
+
+# Storage Functions
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_upload_file(file_path, key=None):
+    """
+    Upload a file to Wasabi S3 storage.
     
     Args:
-        data: Input data containing prompt, module type, and parameters
+        file_path: Path to file to upload
+        key: Storage key (uses filename if not provided)
         
     Returns:
-        Dictionary containing inference results
+        Upload result information
     """
-    # Forward to imported inference service
-    return ada_infer(data)
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.upload_file(file_path, key)
 
-
-# Training service - handles model training
 @app.function(
-    image=ml_image,
-    gpu=gpu_class,
+    image=AdaCloudImage,
     volumes={"/root/ada/storage": storage_volume},
-    timeout=1800,  # Longer timeout for training
-    memory=16384,
-    scaledown_window=300,
+    secrets=[ada_secrets]
 )
-def ada_train(model: str, training_data: Dict[str, Any]) -> Dict[str, Any]:
-    """Train specified model on cloud infrastructure.
+async def ada_upload_json(key, data):
+    """
+    Upload JSON data to Wasabi S3 storage.
     
     Args:
-        model: Model identifier to train
-        training_data: Training configuration and data
+        key: Storage key for the JSON data
+        data: JSON data to upload
         
     Returns:
-        Training results and metrics
+        Upload result information
     """
-    import os
-    import subprocess
-    
-    try:
-        # For now, return placeholder - will be implemented based on model type
-        return {
-            "success": True,
-            "model": model,
-            "status": "training_completed",
-            "metrics": {
-                "loss": 0.5,
-                "accuracy": 0.85,
-                "epochs_completed": 10,
-            },
-            "checkpoint_path": f"/root/ada/storage/models/{model}_trained.pt",
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "model": model,
-        }
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.upload_json(key, data)
 
-
-# Optimization service - wraps cloud optimizer service
 @app.function(
-    image=ml_image,
-    gpu=gpu_class,
+    image=AdaCloudImage,
     volumes={"/root/ada/storage": storage_volume},
-    timeout=2400,  # Even longer for optimization
-    memory=16384,
-    scaledown_window=300,
+    secrets=[ada_secrets]
 )
-def ada_optimize_modal(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Modal wrapper for cloud optimizer service.
+async def ada_download_file(key, destination):
+    """
+    Download a file from Wasabi S3 storage.
     
     Args:
-        params: Optimization parameters and configuration
-        
-    Returns:
-        Optimization results and improved model parameters
-    """
-    # Forward to optimizer service
-    return cloud_optimize(params)
-
-
-# Mission service - wraps cloud mission service
-@app.function(
-    image=ml_image,
-    gpu=gpu_class,
-    volumes={"/root/ada/storage": storage_volume},
-    timeout=1200,
-    memory=8192,
-    scaledown_window=300,
-)
-def ada_mission_modal(goal: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """Modal wrapper for cloud mission service.
-    
-    Args:
-        goal: Mission goal description
-        context: Optional context and constraints
-        
-    Returns:
-        Mission execution results and status
-    """
-    # Forward to mission service
-    return cloud_run_mission(goal, context)
-
-
-@app.function(
-    image=ml_image,  # Use ML image for health check with torch
-    timeout=60,
-    memory=1024,
-)
-def health_check() -> Dict[str, Any]:
-    """Check the health status of the cloud infrastructure.
-    
-    Returns:
-        Health status and system information
-    """
-    import torch
-    import modal
-    
-    return {
-        "status": "healthy",
-        "platform": "modal",
-        "gpu_available": torch.cuda.is_available(),
-        "modal_app_id": app.app_id,
-        "timestamp": str(modal.utcnow()),
-    }
-
-
-# Storage service functions
-@app.function(
-    image=base_image,
-    volumes={"/root/ada/storage": storage_volume},
-    timeout=600,
-    memory=4096,
-    scaledown_window=300,
-)
-def upload_checkpoint(file_path: str, key: Optional[str] = None) -> Dict[str, Any]:
-    """Upload checkpoint to cloud storage.
-    
-    Args:
-        file_path: Path to checkpoint file
-        key: Storage key (optional)
-        
-    Returns:
-        Upload result
-    """
-    return cloud_upload_checkpoint(file_path, key)
-
-
-@app.function(
-    image=base_image,
-    volumes={"/root/ada/storage": storage_volume},
-    timeout=600,
-    memory=4096,
-    scaledown_window=300,
-)
-def download_model(model_name: str, destination: str) -> Dict[str, Any]:
-    """Download model from cloud storage.
-    
-    Args:
-        model_name: Model name/key in storage
+        key: Storage key to download
         destination: Local destination path
         
     Returns:
-        Download result
+        Download result information
     """
-    return cloud_download_model(model_name, destination)
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.download_file(key, destination)
 
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_download_json(key):
+    """
+    Download JSON data from Wasabi S3 storage.
+    
+    Args:
+        key: Storage key for the JSON data
+        
+    Returns:
+        Downloaded JSON data or error info
+    """
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.download_json(key)
 
-# Simple function for testing deployment
-@app.function(image=base_image)
-def test_function():
-    """Simple test function to verify deployment."""
-    return {"message": "Ada Cloud is working!", "timestamp": "2024"}
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_list_files(prefix="", limit=1000):
+    """
+    List files in Wasabi S3 storage.
+    
+    Args:
+        prefix: Key prefix to filter
+        limit: Maximum number of files to return
+        
+    Returns:
+        List of files and metadata
+    """
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.list_files(prefix, limit, include_metadata=True)
 
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_delete_file(key):
+    """
+    Delete a file from Wasabi S3 storage.
+    
+    Args:
+        key: Storage key to delete
+        
+    Returns:
+        Deletion result information
+    """
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.delete_file(key)
 
-if __name__ == "__main__":
-    # For local development/testing
-    print("Ada Cloud Modal App")
-    print(f"App: {app.app_id}")
-    print("Functions: ada_infer, ada_train, ada_optimize, ada_mission, health_check")
+@app.function(
+    image=AdaCloudImage,
+    volumes={"/root/ada/storage": storage_volume},
+    secrets=[ada_secrets]
+)
+async def ada_sync_directory(local_dir, storage_prefix=""):
+    """
+    Sync a local directory to Wasabi S3 storage.
+    
+    Args:
+        local_dir: Local directory to sync
+        storage_prefix: Storage key prefix
+        
+    Returns:
+        Sync operation results
+    """
+    from cloud.storage_service import get_storage_service
+    storage = get_storage_service()
+    return await storage.sync_directory(local_dir, storage_prefix)

@@ -101,6 +101,12 @@ setup-cloud:
 	$(PIP_BIN) install -r $(CLOUD_REQUIREMENTS)
 	@echo "✅ Cloud dependencies installed"
 
+.PHONY: build-image
+build-image:
+	@echo "🔨 Prebuilding Ada Cloud shared image..."
+	modal deploy cloud/modal_app.py --name AdaCloudCache
+	@echo "✅ Ada Cloud image built and cached"
+
 .PHONY: deploy-cloud
 deploy-cloud:
 	@echo "🚀 Deploying Ada Cloud to Modal..."
@@ -134,11 +140,86 @@ invoke-cloud:
 	@echo "⚡ Testing Ada Cloud deployment..."
 	modal run -m cloud.modal_app test_function
 
+# Wasabi S3 Storage Commands
+.PHONY: test-s3
+test-s3:
+	@echo "🧪 Testing Wasabi S3 connection..."
+	$(PYTHON_BIN) test_wasabi_setup.py
+
+.PHONY: s3-upload
+s3-upload:
+	@echo "📤 Uploading file to Wasabi S3..."
+	@read -p "Enter file path: " filepath; \
+	if [ -f "$$filepath" ]; then \
+		modal run cloud.modal_app::ada_upload_file --data "{\"file_path\": \"$$filepath\"}"; \
+	else \
+		echo "File not found: $$filepath"; \
+	fi
+
+.PHONY: s3-upload-json
+s3-upload-json:
+	@echo "📤 Uploading JSON to Wasabi S3..."
+	@read -p "Enter storage key: " key; \
+	read -p "Enter JSON data (或 file path with @): " data; \
+	if [[ "$$data" == @* ]]; then \
+		if [ -f "$${data#@}" ]; then \
+			modal run cloud.modal_app::ada_upload_json --data "{\"key\": \"$$key\", \"data\": $$(cat "$${data#@}\")}"; \
+		else \
+			echo "File not found: $${data#@}"; \
+		fi; \
+	else \
+		modal run cloud.modal_app::ada_upload_json --data "{\"key\": \"$$key\", \"data\": $$data}"; \
+	fi
+
+.PHONY: s3-download
+s3-download:
+	@echo "📥 Downloading file from Wasabi S3..."
+	@read -p "Enter storage key: " key; \
+	read -p "Enter destination path: " dest; \
+	modal run cloud.modal_app::ada_download_file --data "{\"key\": \"$$key\", \"destination\": \"$$dest\"}"
+
+.PHONY: s3-download-json
+s3-download-json:
+	@echo "📥 Downloading JSON from Wasabi S3..."
+	@read -p "Enter storage key: " key; \
+	modal run cloud.modal_app::ada_download_json --data "{\"key\": \"$$key\"}"
+
+.PHONY: s3-list
+s3-list:
+	@echo "📋 Listing files in Wasabi S3..."
+	@read -p "Enter prefix (leave empty for all): " prefix; \
+	if [ -z "$$prefix" ]; then \
+		modal run cloud.modal_app::ada_list_files --data "{}"; \
+	else \
+		modal run cloud.modal_app::ada_list_files --data "{\"prefix\": \"$$prefix\"}"; \
+	fi
+
+.PHONY: s3-delete
+s3-delete:
+	@echo "🗑️  Deleting file from Wasabi S3..."
+	@read -p "Enter storage key to delete: " key; \
+	modal run cloud.modal_app::ada_delete_file --data "{\"key\": \"$$key\"}"
+
+.PHONY: s3-sync-dir
+s3-sync-dir:
+	@echo "🔄 Syncing directory to Wasabi S3..."
+	@read -p "Enter local directory path: " local_dir; \
+	read -p "Enter storage prefix (optional): " prefix; \
+	if [ -d "$$local_dir" ]; then \
+		if [ -z "$$prefix" ]; then \
+			modal run cloud.modal_app::ada_sync_directory --data "{\"local_dir\": \"$$local_dir\"}"; \
+		else \
+			modal run cloud.modal_app::ada_sync_directory --data "{\"local_dir\": \"$$local_dir\", \"storage_prefix\": \"$$prefix\"}"; \
+		fi; \
+	else \
+		echo "Directory not found: $$local_dir"; \
+	fi
+
 .PHONY: sync-storage
 sync-storage:
 	@echo "💾 Syncing with Wasabi storage..."
-	@echo "📦 Uploading models..."
-	modal run -m cloud.modal_app upload_checkpoint --data '"/tmp/test_model.pth", "models/test_model.pth"' || echo "Model sync test completed"
+	@echo "📦 Testing S3 connection..."
+	$(PYTHON_BIN) test_wasabi_setup.py || echo "S3 test completed"
 	@echo "✅ Storage sync completed"
 
 .PHONY: test-cloud
@@ -181,8 +262,19 @@ help:
 	@echo ""
 	@echo "☁️  Cloud Infrastructure Commands:"
 	@echo "  setup-cloud    - Install cloud dependencies"
+	@echo "  build-image    - Prebuild shared Modal image"
 	@echo "  deploy-cloud   - Deploy to Modal serverless platform"
 	@echo "  invoke-cloud   - Test cloud deployment"
-	@echo "  sync-storage   - Sync with Wasabi storage"
 	@echo "  test-cloud     - Test local cloud client connection"
 	@echo "  status-cloud   - Check cloud infrastructure status"
+	@echo ""
+	@echo "💾 Wasabi S3 Storage Commands:"
+	@echo "  test-s3        - Test Wasabi S3 connection"
+	@echo "  s3-upload      - Upload a file to S3"
+	@echo "  s3-upload-json - Upload JSON data to S3"
+	@echo "  s3-download    - Download a file from S3"
+	@echo "  s3-download-json - Download JSON from S3"
+	@echo "  s3-list        - List files in S3 with optional prefix"
+	@echo "  s3-delete      - Delete a file from S3"
+	@echo "  s3-sync-dir    - Sync local directory to S3"
+	@echo "  sync-storage   - Test S3 connection and sync status"

@@ -147,7 +147,12 @@ class StorageService:
                     upload_args["ExtraArgs"] = {"Metadata": metadata}
                 
                 # Upload file
-                self.client.upload_file(**upload_args)
+                self.client.upload_file(
+                    Bucket=self.config.bucket_name,
+                    Key=key,
+                    Filename=str(file_path),
+                    ExtraArgs=upload_args.get("ExtraArgs", {})
+                )
                 
                 # Get file info
                 file_stats = file_path.stat()
