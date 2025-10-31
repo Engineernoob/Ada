@@ -5,6 +5,7 @@ Simple Ada Cloud Client - Interact with Ada running on Modal Cloud
 
 import asyncio
 import json
+from pathlib import Path
 import subprocess
 import sys
 
@@ -207,10 +208,10 @@ async def voice_pipeline(audio_file: str, voice_id: str = "default"):
         
         # Step 1: Transcribe
         transcription_result = await transcribe_audio(audio_file)
-        if not transcription_result.get("success"):
+        if not transcription_result.get("success"): # type: ignore
             return transcription_result
         
-        transcribed_text = transcription_result.get("text", "")
+        transcribed_text = transcription_result.get("text", "") # pyright: ignore[reportOptionalMemberAccess]
         print(f"📝 Transcribed: '{transcribed_text[:100]}{'...' if len(transcribed_text) > 100 else ''}")
         
         # Step 2: Process through Ada (simplified here)
