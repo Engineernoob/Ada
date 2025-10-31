@@ -82,3 +82,25 @@ storage:
   min_storage_days: 90
   sync_on_startup: true
   compression: true
+
+adaptive:
+  enabled: true
+  reinforcement:
+    learning_rate: 0.0005
+    immediate_update: true
+    min_reward_threshold: 0.1
+  memory:
+    enabled: true
+    model_name: "all-MiniLM-L6-v2"
+    recall_top_k: 3
+    max_memories: 10000
+    storage_path: "storage/memory"
+  optimizer:
+    schedule: "weekly"
+    gpu_type: "A10G"
+    min_feedback_entries: 10
+    batch_size: 8
+  logging:
+    path: "logs/training_feedback.jsonl"
+    auto_rotate: true
+    max_file_size_mb: 100

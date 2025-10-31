@@ -303,6 +303,30 @@ class AdaCloudClient:
         """Get API usage metrics."""
         return await self._make_request("GET", "/metrics")
     
+    async def rate(
+        self,
+        prompt: str,
+        response: str,
+        reward: float
+    ) -> Dict[str, Any]:
+        """Submit feedback rating for adaptive learning.
+        
+        Args:
+            prompt: Original user prompt
+            response: Ada's response
+            reward: Reward value (-1.0 to 1.0, where 1.0 is best)
+            
+        Returns:
+            Rating submission result
+        """
+        data = {
+            "prompt": prompt,
+            "response": response,
+            "reward": reward
+        }
+        
+        return await self._make_request("POST", "/rate", data)
+    
     def get_client_metrics(self) -> Dict[str, Any]:
         """Get client-side performance metrics."""
         avg_latency = self.total_latency / max(self.request_count, 1)
@@ -452,6 +476,20 @@ class AdaCloudClientSync:
                 return await client.optimize(target_module, optimization_type, budget, parameters)
         
         return asyncio.run(_optimize())
+    
+    def rate(
+        self,
+        prompt: str,
+        response: str,
+        reward: float
+    ) -> Dict[str, Any]:
+        """Synchronous rating wrapper."""
+        async def _rate():
+            client = self.get_client()
+            async with client:
+                return await client.rate(prompt, response, reward)
+        
+        return asyncio.run(_rate())
     
     def test_connection(self) -> Dict[str, Any]:
         """Synchronous connection test wrapper."""

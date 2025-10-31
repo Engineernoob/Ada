@@ -162,22 +162,28 @@ deploy-api-gateway:
 .PHONY: run-infer
 run-infer:
 	@echo "⚡ Running cloud inference test..."
-	modal run -m cloud.modal_app ada_infer_modal --data '{"prompt": "Hello Ada, how are you?"}'
+	modal run -m cloud.modal_app ada_infer --data '{"prompt": "Hello Ada, how are you?"}'
 
 .PHONY: run-optimize
 run-optimize:
 	@echo "🎯 Running cloud optimization test..."
-	modal run -m cloud.modal_app ada_optimize_modal --data '{"target_module": "core.reasoning", "parameter_space": {"learning_rate": {"type": "float", "min": 0.001, "max": 0.1}, "batch_size": {"type": "int", "min": 16, "max": 128}}, "max_iterations": 10}'
+	modal run -m cloud.modal_app ada_optimize --data '{"target_module": "core.reasoning", "parameter_space": {"learning_rate": {"type": "float", "min": 0.001, "max": 0.1}, "batch_size": {"type": "int", "min": 16, "max": 128}}, "max_iterations": 10}'
+
+.PHONY: retrain-adaptive
+retrain-adaptive:
+	@echo "🧠 Running adaptive retraining on Modal..."
+	@echo "📊 Processing feedback logs for model updates..."
+	modal run -m cloud.optimizer_service retrain_adaptive
 
 .PHONY: run-mission
 run-mission:
 	@echo "🎯 Running cloud mission test..."
-	modal run -m cloud.modal_app ada_mission_modal --data '{"goal": "Analyze system performance and suggest optimizations"}'
+	modal run -m cloud.modal_app ada_mission --data '{"goal": "Analyze system performance and suggest optimizations"}'
 
 .PHONY: invoke-cloud
 invoke-cloud:
 	@echo "⚡ Testing Ada Cloud deployment..."
-	modal run -m cloud.modal_app test_function
+	modal run -m cloud.modal_app ada_infer --data '{"prompt": "Test connection"}'
 
 # Wasabi S3 Storage Commands
 .PHONY: test-s3
@@ -262,7 +268,7 @@ cloud-voice-pipeline:
 s3-delete:
 	@echo "🗑️  Deleting file from Wasabi S3..."
 	@read -p "Enter storage key to delete: " key; \
-	modal run cloud.modal_app::ada_delete_file --data "{\"key\": \"$$key\"}"
+	modal run -m cloud.modal_app ada_delete_file --data "{\"key\": \"$$key\"}"
 
 .PHONY: s3-sync-dir
 s3-sync-dir:
@@ -271,9 +277,9 @@ s3-sync-dir:
 	read -p "Enter storage prefix (optional): " prefix; \
 	if [ -d "$$local_dir" ]; then \
 		if [ -z "$$prefix" ]; then \
-			modal run cloud.modal_app::ada_sync_directory --data "{\"local_dir\": \"$$local_dir\"}"; \
+			modal run -m cloud.modal_app ada_sync_directory --data "{\"local_dir\": \"$$local_dir\"}"; \
 		else \
-			modal run cloud.modal_app::ada_sync_directory --data "{\"local_dir\": \"$$local_dir\", \"storage_prefix\": \"$$prefix\"}"; \
+			modal run -m cloud.modal_app ada_sync_directory --data "{\"local_dir\": \"$$local_dir\", \"storage_prefix\": \"$$prefix\"}"; \
 		fi; \
 	else \
 		echo "Directory not found: $$local_dir"; \
@@ -290,9 +296,9 @@ sync-storage:
 test-cloud:
 	@echo "🧪 Testing Ada Cloud services..."
 	@echo "🔍 Testing inference..."
-	modal run -m cloud.modal_app ada_infer_modal --data '{"prompt": "Test connection"}' || echo "Inference test completed"
+	modal run -m cloud.modal_app ada_infer --data '{"prompt": "Test connection"}' || echo "Inference test completed"
 	@echo "🔍 Testing storage..."
-	modal run -m cloud.modal_app test_function || echo "Storage test completed"
+	modal run -m cloud.modal_app ada_list_files --data '{}' || echo "Storage test completed"
 	@echo "✅ Cloud service tests completed"
 
 .PHONY: status-cloud

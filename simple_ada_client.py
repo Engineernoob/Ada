@@ -44,7 +44,7 @@ async def run_ada_inference(prompt: str):
         # This is how Modal works - the deployed app speeds up cold starts
         import subprocess
         result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::ada_infer", "--data", json.dumps(data)],
+            ["modal", "run", "-m", "cloud.modal_app", "ada_infer", "--data", json.dumps(data)],
             capture_output=True,
             text=True,
             timeout=30
@@ -88,7 +88,7 @@ async def run_ada_mission(goal: str):
         # Run Modal function - missions use --goal parameter
         import subprocess
         result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::ada_mission", "--goal", goal],
+            ["modal", "run", "-m", "cloud.modal_app", "ada_mission", "--goal", goal],
             capture_output=True,
             text=True,
             timeout=60
@@ -123,7 +123,7 @@ async def train_model(model_name="core.reasoning", epochs=10):
         
         # Run Modal function
         result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::ada_train", "--model", model_name, "--training-data", json.dumps(training_data)],
+            ["modal", "run", "-m", "cloud.modal_app", "ada_train", "--model", model_name, "--training-data", json.dumps(training_data)],
             capture_output=True,
             text=True,
             timeout=1800  # 30 minute timeout
@@ -168,7 +168,7 @@ async def transcribe_audio(audio_file: str):
         
         # Run Modal function
         result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::cloud_transcribe", "--data", json.dumps(data)],
+            ["modal", "run", "-m", "cloud.modal_app", "cloud_transcribe", "--data", json.dumps(data)],
             capture_output=True,
             text=True,
             timeout=60
@@ -206,7 +206,7 @@ async def speak_text(text: str, voice_id: str = "default"):
         
         # Run Modal function
         result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::cloud_speak", "--data", json.dumps(dict(text=text)), "--voice-id", str(voice_id or "")],
+            ["modal", "run", "-m", "cloud.modal_app", "cloud_speak", "--data", json.dumps(dict(text=text)), "--voice-id", str(voice_id or "")],
             capture_output=True,
             text=True,
             timeout=300
@@ -290,7 +290,7 @@ async def list_storage_files(prefix=""):
         
         # Note: This would need to be implemented in the API
         # For now, use legacy approach
-        cmd = ["modal", "run", "cloud.modal_app::ada_list_files"]
+        cmd = ["modal", "run", "-m", "cloud.modal_app", "ada_list_files"]
         if prefix:
             cmd.extend(["--prefix", prefix])
         

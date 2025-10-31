@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from .policy_network import get_device
+
+try:
+    from .semantic_memory import add_memory, recall
+    MEMORY_AVAILABLE = True
+except ImportError:
+    MEMORY_AVAILABLE = False
+    add_memory = lambda x: None
+    recall = lambda x, k=3: []
 
 
 class MultiHeadAttention(nn.Module):
@@ -322,3 +334,169 @@ def load_enhanced_model(model_path: Path) -> nn.Module:
     model.load_state_dict(checkpoint['model_state_dict'])
     
     return model
+
+
+# Adaptive learning utilities
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+TRAINING_FEEDBACK_LOG = LOG_DIR / "training_feedback.jsonl"
+
+
+def log_feedback(prompt: str, response: str, reward: float) -> None:
+    """Log training feedback for adaptive retraining.
+    
+    Args:
+        prompt: User prompt/input
+        response: Ada's response
+        reward: Reward value (typically -1 to 1)
+    """
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "prompt": prompt,
+        "response": response,
+        "reward": reward
+    }
+    
+    try:
+        with open(TRAINING_FEEDBACK_LOG, 'a') as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        print(f"⚠️  Failed to log feedback: {e}")
+
+
+class AdaCoreWithAdaptiveLearning:
+    """Wrapper for EnhancedAdaCore with adaptive learning capabilities."""
+    
+    def __init__(
+        self, 
+        model: Optional[EnhancedAdaCore] = None,
+        enable_memory: bool = True,
+        enable_feedback: bool = True,
+        learning_rate: float = 0.0005
+    ):
+        """Initialize adaptive learning wrapper.
+        
+        Args:
+            model: EnhancedAdaCore model (creates new if None)
+            enable_memory: Enable semantic memory for context
+            enable_feedback: Enable reward-based feedback
+            learning_rate: Learning rate for adaptive updates
+        """
+        self.model = model or create_enhanced_model()
+        self.enable_memory = enable_memory and MEMORY_AVAILABLE
+        self.enable_feedback = enable_feedback
+        self.learning_rate = learning_rate
+        self.device = next(self.model.parameters()).device
+        
+        # Training mode tracking
+        self._optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=learning_rate,
+            weight_decay=1e-5
+        )
+    
+    def infer(self, prompt: str, prompt_embedding: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """Run inference with memory-enhanced context.
+        
+        Args:
+            prompt: Text prompt
+            prompt_embedding: Embedding of the prompt
+            
+        Returns:
+            Tuple of (response_embedding, context_string)
+        """
+        context_str = ""
+        
+        # Recall similar memories if enabled
+        if self.enable_memory:
+            recalled_memories = recall(prompt, k=3)
+            if recalled_memories:
+                context_str = " ".join(recalled_memories)
+            
+            # Add current prompt to memory
+            add_memory(prompt)
+        
+        # Generate response
+        self.model.eval()
+        with torch.no_grad():
+            response_embedding = self.model(prompt_embedding)
+        
+        return response_embedding, context_str
+    
+    def apply_feedback(
+        self, 
+        prompt: str,
+        prompt_embedding: torch.Tensor,
+        response: str,
+        response_embedding: torch.Tensor,
+        reward: float
+    ) -> None:
+        """Apply reinforcement learning feedback to update model.
+        
+        Args:
+            prompt: User prompt
+            prompt_embedding: Embedding of prompt
+            response: Ada's response
+            response_embedding: Embedding of response (target)
+            reward: Reward value (-1 to 1, where 1 is best)
+        """
+        if not self.enable_feedback:
+            return
+        
+        # Log feedback for batch retraining
+        log_feedback(prompt, response, reward)
+        
+        # Immediate weight adjustment (RLHF-like)
+        if abs(reward) > 0.1:  # Only update if reward is significant
+            self.model.train()
+            
+            # Zero gradients
+            self._optimizer.zero_grad()
+            
+            # Forward pass
+            predicted = self.model(prompt_embedding)
+            
+            # Compute loss weighted by reward
+            # Positive reward: minimize distance to response
+            # Negative reward: maximize distance (or minimize inverse similarity)
+            if reward > 0:
+                # Good response - move closer
+                loss = F.mse_loss(predicted, response_embedding) * (1 - reward)
+            else:
+                # Bad response - apply penalty
+                loss = F.mse_loss(predicted, response_embedding) * (1 + abs(reward))
+            
+            # Backward pass
+            loss.backward()
+            
+            # Clip gradients for stability
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+            
+            # Update weights
+            self._optimizer.step()
+            
+            print(f"🧩 Ada updated. Reward={reward:.3f}, Loss={loss.item():.4f}")
+    
+    def save(self, path: Path) -> None:
+        """Save model checkpoint.
+        
+        Args:
+            path: Path to save checkpoint
+        """
+        save_enhanced_model(self.model, path)
+    
+    def load(self, path: Path) -> None:
+        """Load model checkpoint.
+        
+        Args:
+            path: Path to load checkpoint from
+        """
+        self.model = load_enhanced_model(path)
+        self.device = next(self.model.parameters()).device
+        
+        # Recreate optimizer
+        self._optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=self.learning_rate,
+            weight_decay=1e-5
+        )

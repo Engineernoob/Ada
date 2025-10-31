@@ -159,5 +159,71 @@ async def optimize(request: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@web_app.post("/rate")
+async def rate_feedback(request: Dict[str, Any]):
+    """Feedback rating endpoint for adaptive learning.
+    
+    Logs user feedback for model improvement via reinforcement learning.
+    """
+    try:
+        prompt = request.get("prompt")
+        response = request.get("response")
+        reward = request.get("reward")
+        
+        if not prompt or not response or reward is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: prompt, response, reward"
+            )
+        
+        # Validate reward range
+        reward_val = float(reward)
+        if not -1.0 <= reward_val <= 1.0:
+            raise HTTPException(
+                status_code=400,
+                detail="Reward must be between -1.0 and 1.0"
+            )
+        
+        # Log feedback directly (since this is a web endpoint)
+        try:
+            from neural.enhanced_policy_network import log_feedback
+            log_feedback(prompt, response, reward_val)
+            
+            return {
+                "success": True,
+                "message": "Feedback recorded for adaptive learning",
+                "reward": reward_val
+            }
+        except ImportError:
+            # Fallback to simple file logging if module not available
+            import json
+            from datetime import datetime
+            from pathlib import Path
+            
+            log_dir = Path("logs")
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "training_feedback.jsonl"
+            
+            entry = {
+                "timestamp": datetime.now().isoformat(),
+                "prompt": prompt,
+                "response": response,
+                "reward": reward_val
+            }
+            
+            with open(log_file, 'a') as f:
+                f.write(json.dumps(entry) + "\n")
+            
+            return {
+                "success": True,
+                "message": "Feedback recorded",
+                "reward": reward_val
+            }
+            
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid reward value: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     run_local_server()
