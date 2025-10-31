@@ -9,15 +9,26 @@ from __future__ import annotations
 import os
 import asyncio
 import logging
-from typing import Dict, Any, List, Optional, Union, AsyncGenerator
+from typing import Dict, Any, Optional, Union, AsyncGenerator
 import json
 import time
-from datetime import datetime, timedelta
 
 import aiohttp
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+
+# Client configuration
+class CloudClientConfig:
+    """Configuration for cloud client."""
+    
+    def __init__(self):
+        self.api_url = os.getenv("ADA_CLOUD_ENDPOINT", "https://ada-cloud.modal.run")
+        self.api_key = os.getenv("ADA_API_KEY", "ada-cloud-api-key")
+        self.timeout = int(os.getenv("ADA_API_TIMEOUT", "300"))
+        self.max_retries = int(os.getenv("ADA_API_MAX_RETRIES", "3"))
+        self.retry_delay = float(os.getenv("ADA_API_RETRY_DELAY", "1.0"))
 
 
 class CloudConfig(BaseModel):

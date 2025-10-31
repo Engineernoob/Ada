@@ -1,0 +1,88 @@
+# Ada Cloud Configuration
+
+# Cloud infrastructure settings
+cloud:
+  enabled: true
+  provider: "modal"
+  endpoint: "https://ada-cloud.modal.run"
+  api_key: "${ADA_API_KEY}"
+  gpu_enabled: true
+  auto_scale_zero: true
+  timeout: 600
+  max_retries: 3
+
+# Neural core offloading configuration
+core:
+  offload_to_cloud: true
+  local_fallback: false
+  model_cache_size: "2GB"
+  max_batch_size: 32
+  
+# Wasabi storage configuration
+storage:
+  provider: "wasabi"
+  endpoint: "https://s3.wasabisys.com"
+  region: "us-east-1"
+  bucket: "ada-models"
+  access_key_id: "${WASABI_KEY_ID}"
+  secret_access_key: "${WASABI_SECRET}"
+  min_storage_days: 90
+  sync_on_startup: false
+  encryption_enabled: true
+
+# Mission daemon configuration
+missions:
+  enabled: true
+  max_concurrent_missions: 10
+  mission_timeout: 3600
+  checkpoint_interval: 300
+  auto_retry: true
+  max_retry_attempts: 3
+  
+# Optimization service configuration
+optimizer:
+  enabled: true
+  default_algorithm: "genetic"
+  max_iterations: 100
+  convergence_threshold: 0.001
+  budget_per_job: 2000
+  save_iterations: true
+  
+# API gateway configuration
+api_gateway:
+  port: 8000
+  host: "0.0.0.0"
+  enable_cors: true
+  rate_limit: 100  # requests per minute
+  max_request_size: "100MB"
+  enable_gzip: true
+  
+# Security settings
+security:
+  require_api_key: true
+  key_rotation_days: 30
+  enable_request_logging: true
+  audit_log_retention_days: 90
+  
+# Performance settings
+performance:
+  cold_start_timeout: 30
+  function_memory: "8192MB"  # GPU functions
+  storage_memory: "4096MB"  # Storage functions
+  enable_metrics: true
+  metrics_retention_days: 30
+  
+# Development settings (set to false in production)
+development:
+  debug_mode: false
+  enable_profiling: false
+  mock_services: false
+  local_testing: false
+  
+# Resource allocation
+resources:
+  gpu_class: "A10G"
+  max_concurrent_inferences: 20
+  max_concurrent_optimizations: 5
+  auto_scaling: true
+  scale_down_idle_seconds: 300

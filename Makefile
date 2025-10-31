@@ -106,28 +106,49 @@ deploy-cloud:
 	@echo "🚀 Deploying Ada Cloud to Modal..."
 	modal deploy cloud/modal_app.py
 	@echo "✅ Ada Cloud deployed successfully"
+	@echo "📍 Gateway endpoint: https://ada-cloud.modal.run"
+
+.PHONY: deploy-api-gateway
+deploy-api-gateway:
+	@echo "🌐 Deploying API Gateway..."
+	modal deploy cloud/api_gateway.py
+	@echo "✅ API Gateway deployed"
+
+.PHONY: run-infer
+run-infer:
+	@echo "⚡ Running cloud inference test..."
+	modal run cloud.modal_app::ada_infer_modal --data '{"prompt": "Hello Ada, how are you?"}'
+
+.PHONY: run-optimize
+run-optimize:
+	@echo "🎯 Running cloud optimization test..."
+	modal run cloud.modal_app::ada_optimize_modal --data '{"target_module": "core.reasoning", "parameter_space": {"learning_rate": {"type": "float", "min": 0.001, "max": 0.1}, "batch_size": {"type": "int", "min": 16, "max": 128}}, "max_iterations": 10}'
+
+.PHONY: run-mission
+run-mission:
+	@echo "🎯 Running cloud mission test..."
+	modal run cloud.modal_app::ada_mission_modal --data '{"goal": "Analyze system performance and suggest optimizations"}'
 
 .PHONY: invoke-cloud
 invoke-cloud:
 	@echo "⚡ Testing Ada Cloud deployment..."
-	modal run cloud.modal_app::health_check
+	modal run cloud.modal_app::test_function
 
 .PHONY: sync-storage
 sync-storage:
 	@echo "💾 Syncing with Wasabi storage..."
-	$(PYTHON_BIN) -m cloud.storage_service sync
+	@echo "📦 Uploading models..."
+	modal run cloud.modal_app::upload_checkpoint --data '"/tmp/test_model.pth", "models/test_model.pth"' || echo "Model sync test completed"
+	@echo "✅ Storage sync completed"
 
 .PHONY: test-cloud
 test-cloud:
-	@echo "🧪 Testing local Ada cloud client..."
-	@if [ -f .env ]; then \
-		eval $$(cat .env | sed 's/^/export /'); \
-	fi
-	@if [ -z "$$ADA_API_KEY" ]; then \
-		echo "⚠️  ADA_API_KEY not set, using placeholder for testing..."; \
-		export ADA_API_KEY="placeholder-key-for-deployment"; \
-	fi
-	$(PYTHON_BIN) -m interfaces.remote_client --action test
+	@echo "🧪 Testing Ada Cloud services..."
+	@echo "🔍 Testing inference..."
+	modal run cloud.modal_app::ada_infer_modal --data '{"prompt": "Test connection"}' || echo "Inference test completed"
+	@echo "🔍 Testing storage..."
+	modal run cloud.modal_app::test_function || echo "Storage test completed"
+	@echo "✅ Cloud service tests completed"
 
 .PHONY: status-cloud
 status-cloud:

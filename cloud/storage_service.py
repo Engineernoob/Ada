@@ -1,423 +1,712 @@
-"""Wasabi Hot Cloud Storage integration for Ada's persistent data.
+"""Storage service for Ada Cloud infrastructure.
 
-This module provides S3-compatible storage operations for models, embeddings,
-checkpoints, and logs using Wasabi's cloud storage service.
+This module provides S3-compatible storage integration with Wasabi for
+persisting models, logs, checkpoints, and mission data.
 """
 
 from __future__ import annotations
 
-import os
-import gzip
-import json
-import pickle
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
+import asyncio
 import logging
-
-import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+import os
+import time
+from typing import Dict, Any, List, Optional, Union, BinaryIO
+from pathlib import Path
+import json
+import hashlib
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# Try to import boto3, handle missing dependency
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    BOTO3_AVAILABLE = True
+except ImportError:
+    BOTO3_AVAILABLE = False
+    logger.warning("boto3 not available - storage functions will be simulated")
 
-class WasabiStorageService:
-    """Wasabi S3-compatible storage service for Ada's cloud infrastructure."""
+
+@dataclass
+class StorageConfig:
+    """Storage configuration."""
+    endpoint_url: str = "https://s3.wasabisys.com"
+    region_name: str = "us-east-1"
+    bucket_name: str = "ada-models"
+    access_key_id: Optional[str] = None
+    secret_access_key: Optional[str] = None
     
-    def __init__(
-        self,
-        bucket_name: str = "ada-models",
-        access_key_id: Optional[str] = None,
-        secret_access_key: Optional[str] = None,
-        region_name: str = "us-east-1",
-        endpoint_url: str = "https://s3.wasabisys.com",
-    ):
-        """Initialize Wasabi storage service.
+    @classmethod
+    def from_env(cls) -> "StorageConfig":
+        """Create config from environment variables."""
+        return cls(
+            access_key_id=os.getenv("WASABI_KEY_ID"),
+            secret_access_key=os.getenv("WASABI_SECRET"),
+            bucket_name=os.getenv("WASABI_BUCKET", "ada-models"),
+            endpoint_url=os.getenv("WASABI_ENDPOINT", "https://s3.wasabisys.com"),
+            region_name=os.getenv("WASABI_REGION", "us-east-1"),
+        )
+
+
+class StorageService:
+    """S3-compatible storage service for Ada Cloud."""
+    
+    def __init__(self, config: Optional[StorageConfig] = None):
+        """Initialize storage service.
         
         Args:
-            bucket_name: Name of the Wasabi bucket
-            access_key_id: Wasabi access key ID (from env if not provided)
-            secret_access_key: Wasabi secret access key (from env if not provided)
-            region_name: AWS region (wasabi uses us-east-1)
-            endpoint_url: Wasabi S3 endpoint URL
+            config: Storage configuration, uses environment if None
         """
-        self.bucket_name = bucket_name
-        self.access_key_id = access_key_id or os.getenv("WASABI_KEY_ID")
-        self.secret_access_key = secret_access_key or os.getenv("WASABI_SECRET")
-        self.region_name = region_name
-        self.endpoint_url = endpoint_url
+        self.config = config or StorageConfig.from_env()
+        self.client = None
+        self._initialized = False
         
-        if not all([self.access_key_id, self.secret_access_key]):
-            raise ValueError("Wasabi credentials must be provided or set as environment variables")
+        if BOTO3_AVAILABLE and self.config.access_key_id and self.config.secret_access_key:
+            self._initialize_client()
+        else:
+            logger.warning("Storage service initialized without S3 backend - operations will be simulated")
         
-        # Initialize S3 client
-        self.s3_client = boto3.client(
-            's3',
-            endpoint_url=self.endpoint_url,
-            aws_access_key_id=self.access_key_id,
-            aws_secret_access_key=self.secret_access_key,
-            region_name=self.region_name,
-        )
-        
-        # Ensure bucket exists
-        self._ensure_bucket_exists()
+        # Create local cache directory
+        self.cache_dir = Path("/tmp/ada_storage_cache")
+        self.cache_dir.mkdir(exist_ok=True)
+    
+    def _initialize_client(self):
+        """Initialize S3 client."""
+        try:
+            self.client = boto3.client(
+                "s3",
+                endpoint_url=self.config.endpoint_url,
+                aws_access_key_id=self.config.access_key_id,
+                aws_secret_access_key=self.config.secret_access_key,
+                region_name=self.config.region_name,
+            )
+            
+            # Test connection
+            self.client.list_buckets()
+            self._initialized = True
+            logger.info(f"Storage service connected to {self.config.endpoint_url}")
+            
+            # Ensure bucket exists
+            self._ensure_bucket_exists()
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize storage client: {e}")
+            self.client = None
     
     def _ensure_bucket_exists(self):
-        """Create bucket if it doesn't exist."""
+        """Ensure the target bucket exists."""
+        if not self.client:
+            return
+        
         try:
-            self.s3_client.head_bucket(Bucket=self.bucket_name)
-            logger.info(f"Bucket '{self.bucket_name}' exists and is accessible")
+            self.client.head_bucket(Bucket=self.config.bucket_name)
         except ClientError as e:
-            if e.response['Error']['Code'] == '404':
+            error_code = e.response["Error"]["Code"]
+            if error_code == "404":
+                # Bucket doesn't exist, create it
                 try:
-                    self.s3_client.create_bucket(Bucket=self.bucket_name)
-                    logger.info(f"Created bucket '{self.bucket_name}'")
+                    self.client.create_bucket(Bucket=self.config.bucket_name)
+                    logger.info(f"Created bucket: {self.config.bucket_name}")
                 except ClientError as create_error:
                     logger.error(f"Failed to create bucket: {create_error}")
-                    raise
             else:
-                logger.error(f"Error accessing bucket: {e}")
-                raise
+                logger.error(f"Bucket access error: {e}")
     
-    def upload_file(
+    async def upload_file(
         self,
         file_path: Union[str, Path],
-        object_key: str,
-        compress: bool = True,
+        key: Optional[str] = None,
         metadata: Optional[Dict[str, str]] = None,
-    ) ->bool:
-        """Upload a file to Wasabi storage.
+    ) -> Dict[str, Any]:
+        """Upload a file to storage.
         
         Args:
-            file_path: Path to local file
-            object_key: S3 object key (path in bucket)
-            compress: Whether to compress the file with gzip
-            metadata: Optional metadata to attach
-            
-        Returns:
-            True if upload successful
-        """
-        file_path = Path(file_path)
-        
-        if not file_path.exists():
-            raise FileNotFoundError(f"File not found: {file_path}")
-        
-        try:
-            if compress:
-                # Read file and compress
-                with open(file_path, 'rb') as f:
-                    file_data = f.read()
-                
-                compressed_data = gzip.compress(file_data)
-                
-                # Upload with compression
-                extra_args = {
-                    'ContentEncoding': 'gzip',
-                    'Metadata': metadata or {},
-                }
-                self.s3_client.put_object(
-                    Bucket=self.bucket_name,
-                    Key=object_key,
-                    Body=compressed_data,
-                    **extra_args
-                )
-            else:
-                # Regular upload
-                self.s3_client.upload_file(
-                    str(file_path),
-                    self.bucket_name,
-                    object_key,
-                    ExtraArgs={'Metadata': metadata or {}} if metadata else None
-                )
-            
-            logger.info(f"Uploaded {file_path} to s3://{self.bucket_name}/{object_key}")
-            return True
-            
-        except ClientError as e:
-            logger.error(f"Failed to upload {file_path}: {e}")
-            return False
-    
-    def download_file(
-        self,
-        object_key: str,
-        file_path: Union[str, Path],
-        decompress: bool = True,
-    ) -> bool:
-        """Download a file from Wasabi storage.
-        
-        Args:
-            object_key: S3 object key
-            file_path: Local path to save file
-            decompress: Whether to decompress if compressed
-            
-        Returns:
-            True if download successful
-        """
-        file_path = Path(file_path)
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        try:
-            if decompress:
-                # Download and decompress
-                response = self.s3_client.get_object(
-                    Bucket=self.bucket_name,
-                    Key=object_key
-                )
-                
-                compressed_data = response['Body'].read()
-                if response.get('ContentEncoding') == 'gzip':
-                    file_data = gzip.decompress(compressed_data)
-                else:
-                    file_data = compressed_data
-                
-                with open(file_path, 'wb') as f:
-                    f.write(file_data)
-            else:
-                # Regular download
-                self.s3_client.download_file(
-                    self.bucket_name,
-                    object_key,
-                    str(file_path)
-                )
-            
-            logger.info(f"Downloaded s3://{self.bucket_name}/{object_key} to {file_path}")
-            return True
-            
-        except ClientError as e:
-            if e.response['Error']['Code'] == 'NoSuchKey':
-                logger.error(f"Object not found: s3://{self.bucket_name}/{object_key}")
-            else:
-                logger.error(f"Failed to download {object_key}: {e}")
-            return False
-    
-    def upload_pickle(
-        self,
-        obj: Any,
-        object_key: str,
-        compress: bool = True,
-        metadata: Optional[Dict[str, str]] = None,
-    ) -> bool:
-        """Upload a Python object as pickle file.
-        
-        Args:
-            obj: Python object to serialize
-            object_key: S3 object key
-            compress: Whether to compress
+            file_path: Path to file to upload
+            key: Storage key (uses filename if not provided)
             metadata: Optional metadata
             
         Returns:
-            True if upload successful
+            Upload result information
         """
-        try:
-            data = pickle.dumps(obj)
-            if compress:
-                data = gzip.compress(data)
+        file_path = Path(file_path)
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        key = key or file_path.name
+        
+        if self._initialized and self.client:
+            try:
+                # Prepare upload parameters
+                upload_args = {
+                    "Key": key,
+                    "Filename": str(file_path),
+                }
+                
+                if metadata:
+                    upload_args["ExtraArgs"] = {"Metadata": metadata}
+                
+                # Upload file
+                self.client.upload_file(**upload_args)
+                
+                # Get file info
+                file_stats = file_path.stat()
+                
+                result = {
+                    "success": True,
+                    "key": key,
+                    "bucket": self.config.bucket_name,
+                    "size": file_stats.st_size,
+                    "last_modified": file_stats.st_mtime,
+                    "etag": self._calculate_file_etag(file_path),
+                    "upload_time": time.time(),
+                }
+                
+                logger.info(f"Uploaded {key} ({file_stats.st_size} bytes)")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Failed to upload {key}: {e}")
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": str(e),
+                }
+        else:
+            # Simulated upload - copy to cache
+            cache_path = self.cache_dir / key
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             
-            extra_args = {
-                'ContentEncoding': 'gzip' if compress else None,
-                'Metadata': metadata or {},
+            import shutil
+            shutil.copy2(file_path, cache_path)
+            
+            file_stats = file_path.stat()
+            
+            return {
+                "success": True,
+                "key": key,
+                "bucket": f"simulated-{self.config.bucket_name}",
+                "size": file_stats.st_size,
+                "last_modified": file_stats.st_mtime,
+                "upload_time": time.time(),
+                "simulated": True,
             }
-            
-            self.s3_client.put_object(
-                Bucket=self.bucket_name,
-                Key=object_key,
-                Body=data,
-                **{k: v for k, v in extra_args.items() if v is not None}
-            )
-            
-            logger.info(f"Uploaded pickle object to s3://{self.bucket_name}/{object_key}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to upload pickle object: {e}")
-            return False
     
-    def download_pickle(
+    async def upload_json(
         self,
-        object_key: str,
-        decompress: bool = True,
-    ) -> Optional[Any]:
-        """Download and deserialize a Python object.
+        key: str,
+        data: Dict[str, Any],
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Upload JSON data to storage.
         
         Args:
-            object_key: S3 object key
-            decompress: Whether to decompress
+            key: Storage key for the JSON data
+            data: JSON data to upload
+            metadata: Optional metadata
             
         Returns:
-            Deserialized Python object or None if failed
+            Upload result information
         """
-        try:
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=object_key
-            )
+        json_str = json.dumps(data, indent=2)
+        
+        if self._initialized and self.client:
+            try:
+                # Upload JSON as object
+                upload_args = {
+                    "Bucket": self.config.bucket_name,
+                    "Key": key,
+                    "Body": json_str,
+                    "ContentType": "application/json",
+                }
+                
+                if metadata:
+                    upload_args["Metadata"] = metadata
+                
+                self.client.put_object(**upload_args)
+                
+                # Calculate ETag
+                etag = hashlib.md5(json_str.encode()).hexdigest()
+                
+                result = {
+                    "success": True,
+                    "key": key,
+                    "bucket": self.config.bucket_name,
+                    "size": len(json_str),
+                    "etag": etag,
+                    "upload_time": time.time(),
+                }
+                
+                logger.info(f"Uploaded JSON {key} ({len(json_str)} bytes)")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Failed to upload JSON {key}: {e}")
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": str(e),
+                }
+        else:
+            # Simulated upload - save to cache
+            cache_path = self.cache_dir / key
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
             
-            data = response['Body'].read()
-            if decompress and response.get('ContentEncoding') == 'gzip':
-                data = gzip.decompress(data)
+            with open(cache_path, "w") as f:
+                json.dump(data, f, indent=2)
             
-            obj = pickle.loads(data)
-            logger.info(f"Downloaded pickle object from s3://{self.bucket_name}/{object_key}")
-            return obj
+            etag = hashlib.md5(json_str.encode()).hexdigest()
             
-        except Exception as e:
-            logger.error(f"Failed to download pickle object: {e}")
-            return None
+            return {
+                "success": True,
+                "key": key,
+                "bucket": f"simulated-{self.config.bucket_name}",
+                "size": len(json_str),
+                "etag": etag,
+                "upload_time": time.time(),
+                "simulated": True,
+            }
     
-    def list_objects(
+    async def download_file(
+        self,
+        key: str,
+        destination: Union[str, Path],
+        overwrite: bool = False,
+    ) -> Dict[str, Any]:
+        """Download a file from storage.
+        
+        Args:
+            key: Storage key to download
+            destination: Local destination path
+            overwrite: Whether to overwrite existing files
+            
+        Returns:
+            Download result information
+        """
+        destination = Path(destination)
+        
+        if destination.exists() and not overwrite:
+            return {
+                "success": False,
+                "key": key,
+                "error": "File already exists and overwrite=False",
+            }
+        
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        
+        if self._initialized and self.client:
+            try:
+                # Download file
+                self.client.download_file(
+                    Bucket=self.config.bucket_name,
+                    Key=key,
+                    Filename=str(destination),
+                )
+                
+                # Get file info
+                file_stats = destination.stat()
+                
+                result = {
+                    "success": True,
+                    "key": key,
+                    "path": str(destination),
+                    "size": file_stats.st_size,
+                    "download_time": time.time(),
+                }
+                
+                logger.info(f"Downloaded {key} to {destination}")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Failed to download {key}: {e}")
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": str(e),
+                }
+        else:
+            # Simulated download - copy from cache
+            cache_path = self.cache_dir / key
+            
+            if not cache_path.exists():
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": "File not found in simulated storage",
+                }
+            
+            import shutil
+            shutil.copy2(cache_path, destination)
+            
+            file_stats = destination.stat()
+            
+            return {
+                "success": True,
+                "key": key,
+                "path": str(destination),
+                "size": file_stats.st_size,
+                "download_time": time.time(),
+                "simulated": True,
+            }
+    
+    async def download_json(self, key: str) -> Dict[str, Any]:
+        """Download JSON data from storage.
+        
+        Args:
+            key: Storage key for the JSON data
+            
+        Returns:
+            Downloaded JSON data or error info
+        """
+        if self._initialized and self.client:
+            try:
+                response = self.client.get_object(
+                    Bucket=self.config.bucket_name,
+                    Key=key,
+                )
+                
+                json_data = json.loads(response["Body"].read().decode())
+                
+                logger.info(f"Downloaded JSON {key}")
+                return {
+                    "success": True,
+                    "key": key,
+                    "data": json_data,
+                    "download_time": time.time(),
+                }
+                
+            except Exception as e:
+                logger.error(f"Failed to download JSON {key}: {e}")
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": str(e),
+                }
+        else:
+            # Simulated download - read from cache
+            cache_path = self.cache_dir / key
+            
+            if not cache_path.exists():
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": "JSON file not found in simulated storage",
+                }
+            
+            with open(cache_path, "r") as f:
+                json_data = json.load(f)
+            
+            return {
+                "success": True,
+                "key": key,
+                "data": json_data,
+                "download_time": time.time(),
+                "simulated": True,
+            }
+    
+    async def list_files(
         self,
         prefix: str = "",
-        max_keys: int = 1000,
-    ) -> List[Dict[str, Any]]:
-        """List objects in bucket with optional prefix filter.
+        limit: int = 1000,
+        include_metadata: bool = False,
+    ) -> Dict[str, Any]:
+        """List files in storage.
         
         Args:
-            prefix: Prefix filter
-            max_keys: Maximum number of keys to return
+            prefix: Key prefix to filter
+            limit: Maximum number of files to return
+            include_metadata: Whether to include file metadata
             
         Returns:
-            List of object information
+            List of files and metadata
         """
-        try:
-            response = self.s3_client.list_objects_v2(
-                Bucket=self.bucket_name,
-                Prefix=prefix,
-                MaxKeys=max_keys
-            )
-            
-            objects = response.get('Contents', [])
-            return [
-                {
-                    'key': obj['Key'],
-                    'size': obj['Size'],
-                    'last_modified': obj['LastModified'],
-                    'etag': obj['ETag'].strip('"'),
+        if self._initialized and self.client:
+            try:
+                paginator = self.client.get_paginator("list_objects_v2")
+                pages = paginator.paginate(
+                    Bucket=self.config.bucket_name,
+                    Prefix=prefix,
+                )
+                
+                files = []
+                file_count = 0
+                
+                for page in pages:
+                    if "Contents" in page:
+                        for obj in page["Contents"]:
+                            if file_count >= limit:
+                                break
+                            
+                            file_info = {
+                                "key": obj["Key"],
+                                "size": obj["Size"],
+                                "last_modified": obj["LastModified"].timestamp(),
+                                "etag": obj["ETag"].strip('"'),
+                            }
+                            
+                            if include_metadata:
+                                try:
+                                    metadata_resp = self.client.head_object(
+                                        Bucket=self.config.bucket_name,
+                                        Key=obj["Key"],
+                                    )
+                                    file_info["metadata"] = metadata_resp.get("Metadata", {})
+                                except:
+                                    file_info["metadata"] = {}
+                            
+                            files.append(file_info)
+                            file_count += 1
+                        
+                        if file_count >= limit:
+                            break
+                
+                return {
+                    "success": True,
+                    "files": files,
+                    "total_count": len(files),
+                    "prefix": prefix,
                 }
-                for obj in objects
-            ]
+                
+            except Exception as e:
+                logger.error(f"Failed to list files: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                }
+        else:
+            # Simulated listing - list from cache
+            files = []
             
-        except ClientError as e:
-            logger.error(f"Failed to list objects: {e}")
-            return []
+            try:
+                cache_prefix = self.cache_dir / prefix if prefix else self.cache_dir
+                
+                if cache_prefix.is_dir():
+                    for file_path in cache_prefix.rglob("*"):
+                        if file_path.is_file() and len(files) < limit:
+                            relative_path = file_path.relative_to(self.cache_dir)
+                            
+                            file_info = {
+                                "key": str(relative_path),
+                                "size": file_path.stat().st_size,
+                                "last_modified": file_path.stat().st_mtime,
+                                "simulated": True,
+                            }
+                            
+                            files.append(file_info)
+                
+                return {
+                    "success": True,
+                    "files": files,
+                    "total_count": len(files),
+                    "prefix": prefix,
+                    "simulated": True,
+                }
+                
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": str(e),
+                }
     
-    def delete_object(self, object_key: str) -> bool:
-        """Delete an object from storage.
+    async def delete_file(self, key: str) -> Dict[str, Any]:
+        """Delete a file from storage.
         
         Args:
-            object_key: S3 object key
+            key: Storage key to delete
             
         Returns:
-            True if deletion successful
+            Deletion result information
         """
-        try:
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=object_key)
-            logger.info(f"Deleted s3://{self.bucket_name}/{object_key}")
-            return True
+        if self._initialized and self.client:
+            try:
+                self.client.delete_object(
+                    Bucket=self.config.bucket_name,
+                    Key=key,
+                )
+                
+                logger.info(f"Deleted {key}")
+                return {
+                    "success": True,
+                    "key": key,
+                    "deleted_at": time.time(),
+                }
+                
+            except Exception as e:
+                logger.error(f"Failed to delete {key}: {e}")
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": str(e),
+                }
+        else:
+            # Simulated deletion - remove from cache
+            cache_path = self.cache_dir / key
             
-        except ClientError as e:
-            logger.error(f"Failed to delete {object_key}: {e}")
-            return False
+            if cache_path.exists():
+                cache_path.unlink()
+                
+                return {
+                    "success": True,
+                    "key": key,
+                    "deleted_at": time.time(),
+                    "simulated": True,
+                }
+            else:
+                return {
+                    "success": False,
+                    "key": key,
+                    "error": "File not found in simulated storage",
+                    "simulated": True,
+                }
     
-    def check_expiry(self, object_key: str, min_days: int = 90) -> bool:
-        """Check if object can be deleted (wasabi has 90-day minimum).
+    def _calculate_file_etag(self, file_path: Path) -> str:
+        """Calculate ETag for a file (MD5 hash)."""
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    
+    async def sync_directory(
+        self,
+        local_dir: Union[str, Path],
+        storage_prefix: str = "",
+        pattern: str = "*",
+        delete_extra: bool = False,
+    ) -> Dict[str, Any]:
+        """Sync a local directory to storage.
         
         Args:
-            object_key: S3 object key
-            min_days: Minimum storage days (wasabi policy)
+            local_dir: Local directory to sync
+            storage_prefix: Storage key prefix
+            pattern: File pattern to match
+            delete_extra: Whether to delete extra files in storage
             
         Returns:
-            True if object is past minimum storage period
+            Sync operation results
         """
-        try:
-            response = self.s3_client.head_object(Bucket=self.bucket_name, Key=object_key)
-            last_modified = response['LastModified']
+        local_dir = Path(local_dir)
+        if not local_dir.exists() or not local_dir.is_dir():
+            return {
+                "success": False,
+                "error": f"Directory not found: {local_dir}",
+            }
+        
+        # Get local files
+        local_files = {}
+        for file_path in local_dir.rglob(pattern):
+            if file_path.is_file():
+                relative_path = file_path.relative_to(local_dir)
+                local_files[str(relative_path)] = file_path
+        
+        # Get storage files
+        storage_result = await self.list_files(storage_prefix, limit=10000)
+        if not storage_result["success"]:
+            return {
+                "success": False,
+                "error": f"Failed to list storage files: {storage_result['error']}",
+            }
+        
+        storage_files = {}
+        for file_info in storage_result["files"]:
+            key = file_info["key"]
+            if key.startswith(storage_prefix):
+                relative_key = key[len(storage_prefix):].lstrip("/")
+                storage_files[relative_key] = file_info
+        
+        # Upload new and modified files
+        uploaded = []
+        updated = []
+        
+        for relative_key, local_path in local_files.items():
+            storage_key = f"{storage_prefix}/{relative_key}" if storage_prefix else relative_key
             
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc)
-            age_days = (now - last_modified).days
-            
-            return age_days >= min_days
-            
-        except ClientError as e:
-            logger.error(f"Failed to check object expiry: {e}")
-            return False
+            if relative_key not in storage_files:
+                # New file - upload
+                result = await self.upload_file(local_path, storage_key)
+                if result["success"]:
+                    uploaded.append(storage_key)
+            else:
+                # Check if file needs updating
+                storage_info = storage_files[relative_key]
+                local_mtime = local_path.stat().st_mtime
+                
+                if local_mtime > storage_info["last_modified"]:
+                    result = await self.upload_file(local_path, storage_key, overwrite=True)
+                    if result["success"]:
+                        updated.append(storage_key)
+        
+        # Delete extra files if requested
+        deleted = []
+        if delete_extra:
+            for relative_key, storage_info in storage_files.items():
+                if relative_key not in local_files:
+                    result = await self.delete_file(storage_info["key"])
+                    if result["success"]:
+                        deleted.append(storage_info["key"])
+        
+        return {
+            "success": True,
+            "uploaded": uploaded,
+            "updated": updated,
+            "deleted": deleted,
+            "total_local_files": len(local_files),
+            "total_storage_files": len(storage_files),
+        }
 
 
-# Convenience functions for common operations
-def upload_checkpoint(file_path: str, bucket: str = "ada-models") -> bool:
-    """Upload model checkpoint to Wasabi."""
-    storage = WasabiStorageService(bucket_name=bucket)
-    object_key = f"checkpoints/{Path(file_path).name}"
-    return storage.upload_file(file_path, object_key)
+# Global storage service instance
+_storage_service: Optional[StorageService] = None
 
 
-def download_model(model_name: str, bucket: str = "ada-models", local_path: str = "./models") -> bool:
-    """Download model from Wasabi."""
-    storage = WasabiStorageService(bucket_name=bucket)
-    object_key = f"models/{model_name}"
-    local_file = Path(local_path) / model_name
-    return storage.download_file(object_key, local_file)
+def get_storage_service() -> StorageService:
+    """Get global storage service instance."""
+    global _storage_service
+    if _storage_service is None:
+        _storage_service = StorageService()
+    return _storage_service
 
 
-def list_models(bucket: str = "ada-models") -> List[str]:
-    """List available models in Wasabi."""
-    storage = WasabiStorageService(bucket_name=bucket)
-    objects = storage.list_objects(prefix="models/")
-    return [obj['key'].replace('models/', '') for obj in objects]
+# Modal wrapper functions
+async def cloud_upload_checkpoint(file_path: str, key: Optional[str] = None) -> Dict[str, Any]:
+    """Modal checkpoint upload function.
+    
+    Args:
+        file_path: Path to checkpoint file
+        key: Storage key (optional)
+        
+    Returns:
+        Upload result
+    """
+    try:
+        service = get_storage_service()
+        return await service.upload_file(file_path, key)
+    except Exception as e:
+        logger.error(f"Checkpoint upload failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "file_path": file_path,
+        }
 
 
-def sync_memory(bucket: str = "ada-models") -> bool:
-    """Synchronize memory database with cloud storage."""
-    storage = WasabiStorageService(bucket_name=bucket)
+async def cloud_download_model(model_name: str, destination: str) -> Dict[str, Any]:
+    """Modal model download function.
     
-    # Upload conversations database
-    db_path = Path("storage/conversations.db")
-    if db_path.exists():
-        return storage.upload_file(db_path, "memory/conversations.db")
-    
-    return False
-
-
-# Command line interface for manual operations
-if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Wasabi Storage Service CLI")
-    parser.add_argument("command", choices=["upload", "download", "list", "sync", "delete"])
-    parser.add_argument("--key", help="Object key")
-    parser.add_argument("--file", help="Local file path")
-    parser.add_argument("--bucket", default="ada-models", help="Bucket name")
-    parser.add_argument("--prefix", default="", help="Prefix filter for list")
-    
-    args = parser.parse_args()
-    
-    storage = WasabiStorageService(bucket_name=args.bucket)
-    
-    if args.command == "upload":
-        if not args.file or not args.key:
-            print("Error: --file and --key required for upload")
-        else:
-            success = storage.upload_file(args.file, args.key)
-            print(f"Upload {'successful' if success else 'failed'}")
-    
-    elif args.command == "download":
-        if not args.key or not args.file:
-            print("Error: --key and --file required for download")
-        else:
-            success = storage.download_file(args.key, args.file)
-            print(f"Download {'successful' if success else 'failed'}")
-    
-    elif args.command == "list":
-        objects = storage.list_objects(prefix=args.prefix)
-        for obj in objects:
-            print(f"{obj['key']} ({obj['size']} bytes, {obj['last_modified']})")
-    
-    elif args.command == "sync":
-        success = sync_memory(args.bucket)
-        print(f"Sync {'successful' if success else 'failed'}")
-    
-    elif args.command == "delete":
-        if not args.key:
-            print("Error: --key required for delete")
-        else:
-            success = storage.delete_object(args.key)
-            print(f"Delete {'successful' if success else 'failed'}")
+    Args:
+        model_name: Model name/key in storage
+        destination: Local destination path
+        
+    Returns:
+        Download result
+    """
+    try:
+        service = get_storage_service()
+        return await service.download_file(model_name, destination)
+    except Exception as e:
+        logger.error(f"Model download failed: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "model_name": model_name,
+        }

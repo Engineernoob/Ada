@@ -70,7 +70,7 @@ class AdaInferenceService:
         if self.reasoning_engine is None:
             try:
                 # Import here to avoid heavy imports in cold starts
-                from core.reasoning import ReasoningEngine
+                from core import ReasoningEngine
                 self.reasoning_engine = ReasoningEngine()
                 logger.info("Reasoning engine loaded successfully")
             except Exception as e:
@@ -127,7 +127,19 @@ class AdaInferenceService:
     ) -> Dict[str, Any]:
         """Run core reasoning inference."""
         try:
-            self._load_reasoning_engine()
+            # Load reasoning engine with error handling
+            try:
+                from core import ReasoningEngine
+                engine = ReasoningEngine()
+            except ImportError as e:
+                logger.error(f"Failed to import ReasoningEngine: {e}")
+                # Fallback response
+                return {
+                    "success": False,
+                    "error": f"Reasoning engine not available: {e}",
+                    "module": "core.reasoning",
+                    "response": "I apologize, but the reasoning engine is currently unavailable. Please check the installation of required dependencies like torch and transformers.",
+                }
             
             if stream:
                 # Implement streaming for reasoning
@@ -137,11 +149,20 @@ class AdaInferenceService:
                 max_tokens = parameters.get("max_tokens", 500)
                 temperature = parameters.get("temperature", 0.7)
                 
-                result = self.reasoning_engine.generate(
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
+                try:
+                    result = engine.generate(
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+                except Exception as gen_error:
+                    logger.error(f"Generation failed: {gen_error}")
+                    return {
+                        "success": False,
+                        "error": f"Generation failed: {gen_error}",
+                        "module": "core.reasoning",
+                        "response": "I apologize, but I encountered an error during text generation. This might be due to missing model files or configuration issues.",
+                    }
                 
                 return {
                     "success": True,
@@ -164,10 +185,24 @@ class AdaInferenceService:
     ) -> Dict[str, Any]:
         """Run autonomous planning inference."""
         try:
-            from planner import IntentEngine, Planner
-            
-            intent_engine = IntentEngine()
-            intents = intent_engine.infer([prompt])
+            try:
+                from planner import IntentEngine, Planner
+                intent_engine = IntentEngine()
+                intents = intent_engine.infer([prompt])
+            except ImportError as e:
+                logger.error(f"Failed to import planning modules: {e}")
+                return {
+                    "success": False,
+                    "error": f"Planning modules not available: {e}",
+                    "module": "core.autonomous_planner",
+                }
+            except Exception as e:
+                logger.error(f"Intent inference failed: {e}")
+                return {
+                    "success": False,
+                    "error": f"Intent inference failed: {e}",
+                    "module": "core.autonomous_planner",
+                }
             
             if not intents:
                 return {
@@ -220,13 +255,20 @@ class AdaInferenceService:
     ) -> Dict[str, Any]:
         """Run conversation inference with memory."""
         try:
-            from core.memory import ConversationStore
-            
-            # Load conversation store
-            store = ConversationStore()
-            
-            # Add user message
-            user_message = store.add_message("user", prompt)
+            try:
+                from core.memory import ConversationStore
+                # Load conversation store
+                store = ConversationStore()
+                # Add user message
+                user_message = store.add_message("user", prompt)
+            except ImportError as e:
+                logger.error(f"Failed to import ConversationStore: {e}")
+                # Fallback to regular reasoning without conversation context
+                return self._reasoning_inference(prompt, parameters, stream)
+            except Exception as e:
+                logger.error(f"Conversation store error: {e}")
+                # Fallback to regular reasoning without conversation context
+                return self._reasoning_inference(prompt, parameters, stream)
             
             # Generate response (fallback to regular reasoning)
             reasoning_result = self._reasoning_inference(prompt, parameters, stream)

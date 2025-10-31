@@ -9,8 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Any, List
 import json
+import logging
 
 import modal
+
+logger = logging.getLogger(__name__)
 
 # Modal app definition
 app = modal.App("AdaCloud")
@@ -18,31 +21,47 @@ app = modal.App("AdaCloud")
 # Volume for persistent storage
 storage_volume = modal.Volume.from_name("ada-cloud-storage", create_if_missing=True)
 
-# Shared image with all dependencies
-image = modal.Image.debian_slim(python_version="3.11").pip_install([
-    "torch",
-    "transformers",
+# Staged images to avoid deployment timeout
+base_image = modal.Image.debian_slim(python_version="3.11").pip_install([
     "numpy",
     "boto3",
-    "coqui-tts",
-    "openai-whisper",
     "fastapi",
     "pydantic",
+    "aiohttp",
 ])
+
+# Heavier image for AI/ML functions
+ml_image = base_image.pip_install([
+    "torch",
+    "transformers",
+    "openai-whisper",
+    "coqui-tts",
+])
+
+# Use base image for deployment to avoid timeout
+image = base_image
 
 # GPU class for heavy compute tasks
 gpu_class = "A10G"
 
+# Import cloud services
+from cloud.inference_service import ada_infer
+from cloud.mission_service import cloud_run_mission
+from cloud.optimizer_service import cloud_optimize
+from cloud.storage_service import cloud_upload_checkpoint, cloud_download_model
 
+
+# Inference service - wraps cloud inference service
 @app.function(
-    image=image,
-    gpu=gpu_class if True else None,  # Enable GPU for heavy tasks
+    image=ml_image,
+    gpu=gpu_class,
     volumes={"/root/ada/storage": storage_volume},
     timeout=600,
     memory=8192,
+    container_idle_timeout=300,  # Auto-scale to zero when idle
 )
-def ada_infer(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Run inference on Ada core reasoning engine.
+def ada_infer_modal(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Modal wrapper for cloud inference service.
     
     Args:
         data: Input data containing prompt, module type, and parameters
@@ -50,48 +69,18 @@ def ada_infer(data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary containing inference results
     """
-    from core.reasoning import ReasoningEngine
-    import torch
-    
-    # Extract input parameters
-    prompt = data.get("prompt", "")
-    module = data.get("module", "core.reasoning")
-    parameters = data.get("parameters", {})
-    
-    try:
-        # Initialize reasoning engine
-        engine = ReasoningEngine()
-        
-        # Run inference
-        result = engine.generate(
-            prompt=prompt,
-            max_tokens=parameters.get("max_tokens", 500),
-            temperature=parameters.get("temperature", 0.7),
-        )
-        
-        # Convert serializable result
-        return {
-            "success": True,
-            "response": result.text,
-            "confidence": float(result.confidence) if hasattr(result, 'confidence') else 0.0,
-            "module": module,
-            "tokens_used": getattr(result, 'tokens_used', 0),
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "module": module,
-        }
+    # Forward to imported inference service
+    return ada_infer(data)
 
 
+# Training service - handles model training
 @app.function(
-    image=image,
+    image=ml_image,
     gpu=gpu_class,
     volumes={"/root/ada/storage": storage_volume},
     timeout=1800,  # Longer timeout for training
     memory=16384,
+    container_idle_timeout=300,
 )
 def ada_train(model: str, training_data: Dict[str, Any]) -> Dict[str, Any]:
     """Train specified model on cloud infrastructure.
@@ -128,15 +117,17 @@ def ada_train(model: str, training_data: Dict[str, Any]) -> Dict[str, Any]:
         }
 
 
+# Optimization service - wraps cloud optimizer service
 @app.function(
-    image=image,
+    image=ml_image,
     gpu=gpu_class,
     volumes={"/root/ada/storage": storage_volume},
     timeout=2400,  # Even longer for optimization
     memory=16384,
+    container_idle_timeout=300,
 )
-def ada_optimize(params: Dict[str, Any]) -> Dict[str, Any]:
-    """Run optimization/evolution jobs on cloud infrastructure.
+def ada_optimize_modal(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Modal wrapper for cloud optimizer service.
     
     Args:
         params: Optimization parameters and configuration
@@ -144,46 +135,21 @@ def ada_optimize(params: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Optimization results and improved model parameters
     """
-    try:
-        # Extract optimization parameters
-        target_module = params.get("target_module", "core")
-        optimization_type = params.get("type", "parameter_tuning")
-        budget = params.get("budget", 1000)
-        
-        # Placeholder implementation - will integrate with actual optimizer
-        optimization_result = {
-            "success": True,
-            "target_module": target_module,
-            "optimization_type": optimization_type,
-            "improvement": 0.15,  # 15% improvement placeholder
-            "best_params": {
-                "learning_rate": 0.001,
-                "batch_size": 64,
-                "epochs": 50,
-            },
-            "budget_used": budget,
-            "iterations": 25,
-        }
-        
-        return optimization_result
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "target_module": params.get("target_module", "core"),
-        }
+    # Forward to optimizer service
+    return cloud_optimize(params)
 
 
+# Mission service - wraps cloud mission service
 @app.function(
-    image=image,
+    image=ml_image,
     gpu=gpu_class,
     volumes={"/root/ada/storage": storage_volume},
     timeout=1200,
     memory=8192,
+    container_idle_timeout=300,
 )
-def ada_mission(goal: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    """Execute autonomous missions on cloud infrastructure.
+def ada_mission_modal(goal: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Modal wrapper for cloud mission service.
     
     Args:
         goal: Mission goal description
@@ -192,43 +158,12 @@ def ada_mission(goal: str, context: Dict[str, Any] | None = None) -> Dict[str, A
     Returns:
         Mission execution results and status
     """
-    try:
-        from missions.mission_manager import MissionManager
-        from missions.mission_manager import Mission
-        
-        # Initialize mission manager
-        manager = MissionManager()
-        
-        # Create mission
-        mission = Mission(
-            goal=goal,
-            context=context or {},
-            priority=context.get("priority", "medium") if context else "medium",
-        )
-        
-        # Execute mission
-        result = manager.execute_mission(mission)
-        
-        return {
-            "success": True,
-            "mission_id": str(mission.id),
-            "goal": goal,
-            "status": result.status,
-            "steps_completed": len(result.completed_steps),
-            "results": result.results,
-            "execution_time": result.execution_time,
-        }
-        
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-            "goal": goal,
-        }
+    # Forward to mission service
+    return cloud_run_mission(goal, context)
 
 
 @app.function(
-    image=image,
+    image=ml_image,  # Use ML image for health check with torch
     timeout=60,
     memory=1024,
 )
@@ -250,8 +185,49 @@ def health_check() -> Dict[str, Any]:
     }
 
 
+# Storage service functions
+@app.function(
+    image=base_image,
+    volumes={"/root/ada/storage": storage_volume},
+    timeout=600,
+    memory=4096,
+    container_idle_timeout=300,
+)
+def upload_checkpoint(file_path: str, key: Optional[str] = None) -> Dict[str, Any]:
+    """Upload checkpoint to cloud storage.
+    
+    Args:
+        file_path: Path to checkpoint file
+        key: Storage key (optional)
+        
+    Returns:
+        Upload result
+    """
+    return cloud_upload_checkpoint(file_path, key)
+
+
+@app.function(
+    image=base_image,
+    volumes={"/root/ada/storage": storage_volume},
+    timeout=600,
+    memory=4096,
+    container_idle_timeout=300,
+)
+def download_model(model_name: str, destination: str) -> Dict[str, Any]:
+    """Download model from cloud storage.
+    
+    Args:
+        model_name: Model name/key in storage
+        destination: Local destination path
+        
+    Returns:
+        Download result
+    """
+    return cloud_download_model(model_name, destination)
+
+
 # Simple function for testing deployment
-@app.function()
+@app.function(image=base_image)
 def test_function():
     """Simple test function to verify deployment."""
     return {"message": "Ada Cloud is working!", "timestamp": "2024"}
