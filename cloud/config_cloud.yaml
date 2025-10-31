@@ -1,0 +1,104 @@
+# Ada Cloud Configuration
+# This file contains cloud-specific settings for Ada's Modal deployment
+
+modal:
+  app_name: "AdaCloud"
+  image:
+    python_version: "3.11"
+    base_image: "debian-slim"
+  resources:
+    default_memory: 8192  # MB
+    default_timeout: 600   # seconds
+    inference:
+      memory: 8192
+      timeout: 600
+      gpu: true  # Enable A10G GPU for inference
+    training:
+      memory: 16384
+      timeout: 1800  # 30 minutes
+      gpu: true
+    optimization:
+      memory: 16384
+      timeout: 2400  # 40 minutes
+      gpu: true
+    mission:
+      memory: 8192
+      timeout: 1200  # 20 minutes
+      gpu: true
+  volumes:
+    storage_volume: "ada-cloud-storage"
+    mount_path: "/root/ada/storage"
+
+api_gateway:
+  # FastAPI gateway configuration
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  reload: false
+  cors:
+    allow_origins: ["*"]
+    allow_credentials: true
+    allow_methods: ["*"]
+    allow_headers: ["*"]
+  rate_limiting:
+    default: "60/minute"
+    inference: "30/minute"
+    training: "5/minute"
+    mission: "20/minute"
+    optimization: "10/minute"
+
+wasabi:
+  # Wasabi S3-compatible storage settings
+  endpoint: "https://s3.wasabisys.com"
+  region: "us-east-1"
+  bucket_prefix: "ada-"
+  buckets:
+    models: "ada-models"      # Model checkpoints and trained models
+    embeddings: "ada-embeddings"  # Text embeddings and semantic data
+    logs: "ada-logs"          # Application logs and metrics
+    checkpoints: "ada-checkpoints"  # Training checkpoints and snapshots
+    memory: "ada-memory"      # Conversation memory and episodic data
+  compression:
+    enabled: true
+    content_types: ["application/octet-stream", "text/plain", "application/json"]
+  min_storage_days: 90
+  multipart_threshold: 64  # MB
+
+monitoring:
+  # Cloud monitoring and observability
+  metrics:
+    collection_interval: 60  # seconds
+    retention_days: 30
+  logging:
+    level: "INFO"
+    format: "json"
+    cluster_logs: true
+  alerts:
+    error_threshold: 0.1     # 10% error rate
+    latency_p95_threshold: 5000  # milliseconds
+    gpu_memory_threshold: 0.9    # 90% GPU memory usage
+
+security:
+  # Security and authentication
+  api_key_rotation: false
+  request_validation: true
+  input_sanitization: true
+  rate_limiting: true
+  tls_version: "1.3"
+
+performance:
+  # Performance optimization settings
+  cache:
+    model_loading: true
+    inference_cache_size: 100
+    cache_ttl: 3600  # seconds
+  batching:
+    enabled: false
+    max_batch_size: 8
+    batch_timeout: 100  # milliseconds
+  auto_scaling:
+    min_containers: 0
+    max_containers: 10
+    scale_up_threshold: 0.8      # 80% CPU utilization
+    scale_down_threshold: 0.2    # 20% CPU utilization
+    cooldown_period: 300         # seconds

@@ -2,9 +2,11 @@ PYTHON := $(shell command -v python3.11 2>/dev/null || command -v python3)
 VENV := .venv
 PYTHON_BIN := $(VENV)/bin/python
 PIP_BIN := $(VENV)/bin/pip
+CLOUD_REQUIREMENTS := cloud/requirements_cloud.txt
 
 .PHONY: setup setup-dev run run-voice train train-rl mps-test test-phases test-cli \
-            test-memory test-persona test-planning backup restore build-docs lint format help clean ensure-venv
+            test-memory test-persona test-planning backup restore build-docs lint format help clean ensure-venv \
+            setup-cloud deploy-cloud invoke-cloud sync-storage test-cloud status-cloud
 
 ensure-venv:
 	@if [ ! -x $(PYTHON_BIN) ]; then \
@@ -93,6 +95,52 @@ clean:
 	rm -rf $(VENV)
 	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
 
+# Cloud infrastructure commands
+setup-cloud:
+	@echo "🌩️  Setting up cloud infrastructure..."
+	$(PIP_BIN) install -r $(CLOUD_REQUIREMENTS)
+	@echo "✅ Cloud dependencies installed"
+
+.PHONY: deploy-cloud
+deploy-cloud:
+	@echo "🚀 Deploying Ada Cloud to Modal..."
+	modal deploy cloud/modal_app.py
+	@echo "✅ Ada Cloud deployed successfully"
+
+.PHONY: invoke-cloud
+invoke-cloud:
+	@echo "⚡ Testing Ada Cloud deployment..."
+	modal run cloud.modal_app::health_check
+
+.PHONY: sync-storage
+sync-storage:
+	@echo "💾 Syncing with Wasabi storage..."
+	$(PYTHON_BIN) -m cloud.storage_service sync
+
+.PHONY: test-cloud
+test-cloud:
+	@echo "🧪 Testing local Ada cloud client..."
+	@if [ -f .env ]; then \
+		eval $$(cat .env | sed 's/^/export /'); \
+	fi
+	@if [ -z "$$ADA_API_KEY" ]; then \
+		echo "⚠️  ADA_API_KEY not set, using placeholder for testing..."; \
+		export ADA_API_KEY="placeholder-key-for-deployment"; \
+	fi
+	$(PYTHON_BIN) -m interfaces.remote_client --action test
+
+.PHONY: status-cloud
+status-cloud:
+	@echo "🔍 Checking Ada Cloud status..."
+	@if [ -f .env ]; then \
+		eval $$(cat .env | sed 's/^/export /'); \
+	fi
+	@if [ -z "$$ADA_API_KEY" ]; then \
+		echo "⚠️  ADA_API_KEY not set, using placeholder for testing..."; \
+		export ADA_API_KEY="placeholder-key-for-deployment"; \
+	fi
+	$(PYTHON_BIN) -m interfaces.remote_client --action status
+
 help:
 	@echo "📚 Ada Makefile Commands:"
 	@echo "  setup          - Create virtual environment and install dependencies"
@@ -109,3 +157,11 @@ help:
 	@echo "  lint           - Run flake8 lint checks"
 	@echo "  format         - Apply black formatting"
 	@echo "  clean          - Remove venv and caches"
+	@echo ""
+	@echo "☁️  Cloud Infrastructure Commands:"
+	@echo "  setup-cloud    - Install cloud dependencies"
+	@echo "  deploy-cloud   - Deploy to Modal serverless platform"
+	@echo "  invoke-cloud   - Test cloud deployment"
+	@echo "  sync-storage   - Sync with Wasabi storage"
+	@echo "  test-cloud     - Test local cloud client connection"
+	@echo "  status-cloud   - Check cloud infrastructure status"

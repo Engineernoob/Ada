@@ -60,3 +60,25 @@ optimizer:
   selection_top_k: 2
   preserve_best: true
   rollback_safe: true
+
+cloud:
+  enabled: true
+  provider: "modal"
+  endpoint: "https://ada-cloud.modal.run"
+  api_key: "${ADA_API_KEY}"
+  gpu_enabled: true
+  auto_scale_zero: true
+  timeout: 300
+  max_retries: 3
+  enable_streaming: true
+
+storage:
+  provider: "wasabi"
+  endpoint: "https://s3.wasabisys.com"
+  region: "us-east-1"
+  bucket: "ada-models"
+  access_key_id: "${WASABI_KEY_ID}"
+  secret_access_key: "${WASABI_SECRET}"
+  min_storage_days: 90
+  sync_on_startup: true
+  compression: true
