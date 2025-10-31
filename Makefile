@@ -114,6 +114,45 @@ deploy-cloud:
 	@echo "✅ Ada Cloud deployed successfully"
 	@echo "📍 Gateway endpoint: https://ada-cloud.modal.run"
 
+# Ada Cloud Client Commands
+.PHONY: cloud-chat
+cloud-chat:
+	@echo "💬 Starting Ada Cloud chat..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS)))" ]; then \
+		python3 simple_ada_client.py chat "$(word 2,$(MAKECMDGOALS)) $(wordlist 3,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))"; \
+	else \
+		python3 simple_ada_client.py chat; \
+	fi
+
+.PHONY: cloud-mission
+cloud-mission:
+	@echo "🎯 Running Ada Cloud mission..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS)))" ]; then \
+		python3 simple_ada_client.py mission "$(word 2,$(MAKECMDGOALS)) $(wordlist 3,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))"; \
+	else \
+		echo "❌ Please provide a mission goal"; \
+		echo "Usage: make cloud-mission \"<goal>\""; \
+	fi
+
+.PHONY: cloud-storage
+cloud-storage:
+	@echo "📁 Listing Ada Cloud storage..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS)))" ]; then \
+		python3 simple_ada_client.py storage "$(word 2,$(MAKECMDGOALS))"; \
+	else \
+		python3 simple_ada_client.py storage; \
+	fi
+
+.PHONY: cloud-train
+cloud-train:
+	@echo "🔧 Training model on Ada Cloud..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS)))" ]; then \
+		python3 simple_ada_client.py train "$(word 2,$(MAKECMDGOALS))" "$(word 3,$(MAKECMDGOALS))"; \
+	else \
+		echo "❌ Please provide a model name"; \
+		echo "Usage: make cloud-train <model> [epochs]"; \
+	fi
+
 .PHONY: deploy-api-gateway
 deploy-api-gateway:
 	@echo "🌐 Deploying API Gateway..."
@@ -184,15 +223,40 @@ s3-download-json:
 	@read -p "Enter storage key: " key; \
 	modal run cloud.modal_app::ada_download_json --data "{\"key\": \"$$key\"}"
 
-.PHONY: s3-list
-s3-list:
-	@echo "📋 Listing files in Wasabi S3..."
-	@read -p "Enter prefix (leave empty for all): " prefix; \
-	if [ -z "$$prefix" ]; then \
-		modal run cloud.modal_app::ada_list_files --data "{}"; \
+.PHONY: # Voice Commands
+.PHONY: cloud-transcribe
+cloud-transcribe:
+	@echo "🎤 Transcribing audio file to text..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS)))" ]; then \
+		python3 simple_ada_client.py voice "$(word 2,$(MAKECMDGOALS))"; \
 	else \
-		modal run cloud.modal_app::ada_list_files --data "{\"prefix\": \"$$prefix\"}"; \
+		echo "❌ Please provide an audio file path"; \
+		echo "Usage: make cloud-transcribe <audio_file>"; \
 	fi
+
+.PHONY: cloud-speak
+cloud-speak:
+	@echo "🔊 Converting text to speech..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS))) ]; then \
+		text="$(word 2,$(MAKECMDGOALS)); \
+		voice_id="$(word 3,$(MAKECMDGOALS))"; \
+		python3 simple_ada_client.py speak "$text" "$voice_id"; \
+	else \
+		text="Hello from Ada Cloud!"; \
+		python3 simple_ada_client.py speak "$text"; \
+	fi
+
+.PHONY: cloud-voice-pipeline
+cloud-voice-pipeline:
+	@echo "🎤➡️🔧➡️🔊 Voice Pipeline: transcribe → process → speak..."
+	@if [ -n "$(words $(filter-out $@,$(MAKECMDGOALS))) ]; then \
+		python3 simple_ada_client.py pipeline "$(word 2,$(MAKECMDGOALS))"; \
+	else \
+		echo "❌ Please provide an audio file path"; \
+		echo "Usage: make cloud-voice-pipeline <audio_file>"; \
+	fi
+
+# S3 Commands
 
 .PHONY: s3-delete
 s3-delete:
@@ -267,6 +331,15 @@ help:
 	@echo "  invoke-cloud   - Test cloud deployment"
 	@echo "  test-cloud     - Test local cloud client connection"
 	@echo "  status-cloud   - Check cloud infrastructure status"
+	@echo ""
+	@echo "🤖 Ada Cloud Client Commands:"
+	@echo "  cloud-chat     - Chat with Ada on Modal Cloud"
+	@echo "  cloud-mission  - Run Ada missions on cloud"
+	@echo "  cloud-train    - Train models on cloud (GPU A10G)"
+	@echo "  cloud-storage  - List cloud storage files"
+	@echo "  cloud-transcribe - Transcribe audio to text"
+	@echo "  cloud-speak     - Convert text to speech (TTS)"
+	@echo "  cloud-voice-pipeline - Full voice: transcribe → process → speak"
 	@echo ""
 	@echo "💾 Wasabi S3 Storage Commands:"
 	@echo "  test-s3        - Test Wasabi S3 connection"

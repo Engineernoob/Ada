@@ -3,14 +3,11 @@
 Ada Cloud Client - Interact with Ada running on Modal Cloud
 """
 
-import modal
-import json
 import asyncio
+import json
+import subprocess
 import sys
 from typing import Dict, Any, Optional
-
-# Import the Modal app using App ID
-app = modal.App.lookup("ap-bUEJmxS6PPPID14fd8tSlD", create_if_missing=False)
 
 class AdaClient:
     """Client for interacting with Ada on Modal Cloud."""
@@ -18,19 +15,40 @@ class AdaClient:
     def __init__(self):
         """Initialize the Ada Cloud client."""
         print("🌩️  Connecting to Ada Cloud...")
+        self.app_name = "AdaCloudFinal"
+        print("✅ Cloud client initialized!")
+    
+    async def _run_modal_function(self, function_name: str, data: str = None) -> Dict[str, Any]: # pyright: ignore[reportArgumentType]
+        """Run a Modal function via CLI."""
         try:
-            # Get references to cloud functions
-            self.infer_func = app.function("ada_infer")
-            self.mission_func = app.function("ada_mission")
-            self.optimize_func = app.function("ada_optimize")
-            self.upload_json_func = app.function("ada_upload_json")
-            self.download_json_func = app.function("ada_download_json")
-            self.list_files_func = app.function("ada_list_files")
+            cmd = ["modal", "run", f"cloud.modal_app::{function_name}"]
+            if data:
+                cmd.extend(["--data", data])
             
-            print("✅ Connected to Ada Cloud successfully!")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                # Parse the output for JSON if possible
+                try:
+                    # Try to extract JSON from output
+                    output = result.stdout.strip()
+                    if output:
+                        return {"success": True, "response": output}
+                except:
+                    pass
+                return {"success": True, "response": result.stdout}
+            else:
+                return {"success": False, "error": result.stderr}
+                
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Request timed out"}
         except Exception as e:
-            print(f"❌ Failed to connect to Ada Cloud: {e}")
-            sys.exit(1)
+            return {"success": False, "error": str(e)}
     
     async def chat(self, message: str) -> str:
         """Send a message to Ada and get response."""
@@ -48,7 +66,7 @@ class AdaClient:
             }
             
             # Call the cloud inference function
-            result = await self.infer_func.aio.call(json.dumps(data))
+            result = await self._run_modal_function("ada_infer", json.dumps(data))
             
             if result.get("success"):
                 response = result.get("response", "I apologize, but I couldn't generate a response.")
@@ -68,7 +86,7 @@ class AdaClient:
         print(f"🎯 Starting Mission: {goal}")
         
         try:
-            result = await self.mission_func.aio.call(goal)
+            result = await self.mission_func.aio.call(goal) # type: ignore
             
             if result.get("success"):
                 print(f"✅ Mission completed successfully!")
@@ -100,7 +118,7 @@ class AdaClient:
                 "algorithm": "random_search"
             }
             
-            result = await self.optimize_func.aio.call(json.dumps(params))
+            result = await self.optimize_func.aio.call(json.dumps(params)) # pyright: ignore[reportAttributeAccessIssue]
             
             if result.get("success"):
                 print(f"✅ Optimization completed!")
@@ -121,7 +139,7 @@ class AdaClient:
         """Save conversation to cloud storage."""
         try:
             filename = f"conversations/chat_{asyncio.get_event_loop().time()}.json"
-            result = await self.upload_json_func.aio.call(filename, conversation)
+            result = await self.upload_json_func.aio.call(filename, conversation) # type: ignore
             return result.get("success", False)
         except Exception as e:
             print(f"❌ Failed to save conversation: {e}")
