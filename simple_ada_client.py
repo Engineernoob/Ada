@@ -7,6 +7,7 @@ import asyncio
 import json
 from pathlib import Path
 import subprocess
+import requests
 import sys
 
 async def run_ada_inference(prompt: str):
@@ -24,7 +25,9 @@ async def run_ada_inference(prompt: str):
             }
         }
         
-        # Run Modal function
+        # Run Modal function - each call creates a temporary app
+        # This is how Modal works - the deployed app speeds up cold starts
+        import subprocess
         result = subprocess.run(
             ["modal", "run", "cloud.modal_app::ada_infer", "--data", json.dumps(data)],
             capture_output=True,
@@ -33,42 +36,69 @@ async def run_ada_inference(prompt: str):
         )
         
         if result.returncode == 0:
-            print("🤖 Ada: Cloud inference completed successfully!")
-            print(f"📋 Output: {result.stdout}")
+            print("🤖 Ada: Cloud inference completed!")
+            # Extract meaningful response from output
+            try:
+                lines = result.stdout.strip().split('\n')
+                meaningful_lines = [line for line in lines if line.strip() and not line.startswith('✓') and not line.startswith('├') and not line.startswith('View run')]
+                if meaningful_lines:
+                    response = '\n'.join(meaningful_lines)
+                    print(f"🤖 Ada: {response}")
+                else:
+                    print("📋 Output: (empty)")
+            except Exception:
+                print(f"📋 Raw output: {result.stdout}")
         else:
-            print(f"❌ Ada Error: {result.stderr}")
+            error_lines = result.stderr.strip().split('\n')
+            relevant_errors = [line for line in error_lines if 'Error' in line or 'error' in line or 'Exception' in line]
+            if relevant_errors:
+                print(f"❌ Ada Error: {relevant_errors[-1]}")
+            else:
+                print(f"❌ Ada Error: {result.stderr}")
             
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired: # pyright: ignore[reportPossiblyUnboundVariable]
         print("❌ Request timed out")
     except Exception as e:
         print(f"❌ Error: {e}")
+        print("\n💡 Note: Each call creates a temporary app, but the deployed app speeds up cold starts.")
+        print("   This is the standard Modal pattern for function execution.")
 
 async def run_ada_mission(goal: str):
-    """Run Ada mission on Modal Cloud."""
+    """Run Ada mission on Modal Cloud API."""
     print(f"🎯 Mission: {goal}")
     
     try:
-        # Run Modal function - missions use --goal parameter
-        result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::ada_mission", "--goal", goal],
-            capture_output=True,
-            text=True,
+        # Prepare mission data
+        data = {
+            "goal": goal,
+            "context": {}
+        }
+        
+        # Call the deployed API
+        response = requests.post(
+            "https://engineernoob--adacloudapi-api.modal.run/mission",
+            json=data,
             timeout=60
         )
         
-        if result.returncode == 0:
-            print("✅ Mission completed successfully!")
-            print(f"📋 Output: {result.stdout}")
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success", True):
+                print("✅ Mission completed successfully!")
+                print(f"📋 Output: {result.get('response', 'Mission completed')}")
+            else:
+                error = result.get("error", "Unknown error")
+                print(f"❌ Mission Error: {error}")
         else:
-            print(f"❌ Mission Error: {result.stderr}")
+            print(f"❌ Mission Error: HTTP {response.status_code} - {response.text}")
             
-    except subprocess.TimeoutExpired:
+    except requests.exceptions.Timeout:
         print("❌ Mission timed out")
     except Exception as e:
         print(f"❌ Error: {e}")
 
 async def train_model(model_name="core.reasoning", epochs=10):
-    """Train a model on Ada Cloud."""
+    """Train a model on Ada Cloud API."""
     print(f"🔧 Training model: {model_name}")
     print(f"📊 Training epochs: {epochs}")
     
@@ -83,22 +113,26 @@ async def train_model(model_name="core.reasoning", epochs=10):
             "validation_split": 0.2
         }
         
-        # Run Modal function
-        result = subprocess.run(
-            ["modal", "run", "cloud.modal_app::ada_train", "--model", model_name, "--training-data", json.dumps(training_data)],
-            capture_output=True,
-            text=True,
+        # Call the deployed API
+        response = requests.post(
+            "https://engineernoob--adacloudapi-api.modal.run/train",
+            json=training_data,
             timeout=1800  # 30 minute timeout
         )
         
-        if result.returncode == 0:
-            print("✅ Training completed!")
-            print("📋 Training results:")
-            print(result.stdout)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("success", True):
+                print("✅ Training completed!")
+                print("📋 Training results:")
+                print(result.get("response", "Training completed successfully"))
+            else:
+                error = result.get("error", "Unknown error")
+                print(f"❌ Training Error: {error}")
         else:
-            print(f"❌ Training Error: {result.stderr}")
+            print(f"❌ Training Error: HTTP {response.status_code} - {response.text}")
             
-    except subprocess.TimeoutExpired:
+    except requests.exceptions.Timeout:
         print("❌ Training timed out after 30 minutes")
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -239,15 +273,22 @@ async def voice_pipeline(audio_file: str, voice_id: str = "default"):
         }
 
 async def list_storage_files(prefix=""):
-    """List files in Ada Cloud storage."""
+    """List files in Ada Cloud storage API."""
     print(f"📋 Listing storage files (prefix: '{prefix}')...")
     
     try:
-        # Run Modal function with optional prefix parameter
+        # Prepare data
+        data = {}
+        if prefix:
+            data["prefix"] = prefix
+        
+        # Note: This would need to be implemented in the API
+        # For now, use legacy approach
         cmd = ["modal", "run", "cloud.modal_app::ada_list_files"]
         if prefix:
             cmd.extend(["--prefix", prefix])
         
+        import subprocess
         result = subprocess.run(
             cmd,
             capture_output=True,

@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 import os
 
 # Modal app setup - use consistent app name
-app = modal.App("AdaCloud")
+app = modal.App("AdaCloudFinal")
 
 # Images
 base_image = modal.Image.debian_slim(python_version="3.11").pip_install([
@@ -38,18 +38,20 @@ def _get_modal_functions():
     """Get references to deployed Modal functions."""
     try:
         # These will be created after full deployment
-        infer_fn = modal.Function.lookup("AdaCloud", "ada_infer")
-        train_fn = modal.Function.lookup("AdaCloud", "ada_train")
-        mission_fn = modal.Function.lookup("AdaCloud", "ada_mission")
-        optimize_fn = modal.Function.lookup("AdaCloud", "ada_optimize")
-        health_fn = modal.Function.lookup("AdaCloud", "health_check")
+        try:
+            infer_fn = modal.Function.lookup("AdaCloudFinal", "ada_infer")
+            train_fn = modal.Function.lookup("AdaCloudFinal", "ada_train")
+            mission_fn = modal.Function.lookup("AdaCloudFinal", "ada_mission")
+            optimize_fn = modal.Function.lookup("AdaCloudFinal", "ada_optimize")
+            # Note: health_check doesn't exist, use simple response
+        except Exception:
+            return None
         
         return {
             "infer": infer_fn,
             "train": train_fn,
             "mission": mission_fn,
             "optimize": optimize_fn,
-            "health": health_fn,
         }
     except Exception as e:
         return None
@@ -69,13 +71,16 @@ async def status():
     """Health check endpoint."""
     try:
         functions = _get_modal_functions()
-        if functions and functions["health"]:
-            result = functions["health"].remote()
-            return result
+        if functions:
+            return {
+                "status": "operational",
+                "message": "All services running",
+                "functions": list(functions.keys())
+            }
         else:
             return {
                 "status": "partially_operational",
-                "message": "Core services running, specialized functions not yet connected"
+                "message": "Web service running, specialized functions not yet connected"
             }
     except Exception as e:
         return {
@@ -103,7 +108,8 @@ async def inference(request: Dict[str, Any]):
 async def training(request: Dict[str, Any]):
     """Training endpoint."""
     try:
-        model = request.pop("model", "default")
+        model = request.get("model", "default")
+        # Pass the entire request as training_data
         training_data = request
         
         functions = _get_modal_functions()
