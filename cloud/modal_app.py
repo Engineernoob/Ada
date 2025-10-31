@@ -58,7 +58,7 @@ from cloud.storage_service import cloud_upload_checkpoint, cloud_download_model
     volumes={"/root/ada/storage": storage_volume},
     timeout=600,
     memory=8192,
-    container_idle_timeout=300,  # Auto-scale to zero when idle
+    scaledown_window=300,  # Auto-scale to zero when idle
 )
 def ada_infer_modal(data: Dict[str, Any]) -> Dict[str, Any]:
     """Modal wrapper for cloud inference service.
@@ -80,7 +80,7 @@ def ada_infer_modal(data: Dict[str, Any]) -> Dict[str, Any]:
     volumes={"/root/ada/storage": storage_volume},
     timeout=1800,  # Longer timeout for training
     memory=16384,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
 def ada_train(model: str, training_data: Dict[str, Any]) -> Dict[str, Any]:
     """Train specified model on cloud infrastructure.
@@ -124,7 +124,7 @@ def ada_train(model: str, training_data: Dict[str, Any]) -> Dict[str, Any]:
     volumes={"/root/ada/storage": storage_volume},
     timeout=2400,  # Even longer for optimization
     memory=16384,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
 def ada_optimize_modal(params: Dict[str, Any]) -> Dict[str, Any]:
     """Modal wrapper for cloud optimizer service.
@@ -146,7 +146,7 @@ def ada_optimize_modal(params: Dict[str, Any]) -> Dict[str, Any]:
     volumes={"/root/ada/storage": storage_volume},
     timeout=1200,
     memory=8192,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
 def ada_mission_modal(goal: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """Modal wrapper for cloud mission service.
@@ -191,7 +191,7 @@ def health_check() -> Dict[str, Any]:
     volumes={"/root/ada/storage": storage_volume},
     timeout=600,
     memory=4096,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
 def upload_checkpoint(file_path: str, key: Optional[str] = None) -> Dict[str, Any]:
     """Upload checkpoint to cloud storage.
@@ -211,7 +211,7 @@ def upload_checkpoint(file_path: str, key: Optional[str] = None) -> Dict[str, An
     volumes={"/root/ada/storage": storage_volume},
     timeout=600,
     memory=4096,
-    container_idle_timeout=300,
+    scaledown_window=300,
 )
 def download_model(model_name: str, destination: str) -> Dict[str, Any]:
     """Download model from cloud storage.
