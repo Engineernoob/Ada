@@ -6,6 +6,7 @@ This module provides HTTP endpoints for direct access to Modal functions.
 import modal
 from fastapi import FastAPI, HTTPException
 from typing import Dict, Any, Optional
+from pathlib import Path
 import os
 
 # Modal app setup - use consistent app name
@@ -20,6 +21,27 @@ base_image = modal.Image.debian_slim(python_version="3.11").pip_install([
 
 # FastAPI app
 web_app = FastAPI(title="Ada Cloud API", version="1.0.0")
+
+_ada_core_instance = None
+
+
+def _get_ada_core():
+    global _ada_core_instance
+    if _ada_core_instance is not None:
+        return _ada_core_instance
+    try:
+        from core.neural_core import AdaCore
+
+        model_path = (
+            Path(__file__).resolve().parents[1]
+            / "storage"
+            / "models"
+            / "ada_core_latest.pth"
+        )
+        _ada_core_instance = AdaCore.load(model_path)
+        return _ada_core_instance
+    except Exception as exc:  # pragma: no cover - surfaced via HTTP error
+        raise HTTPException(status_code=500, detail=str(exc))
 
 @app.function(image=base_image)
 @modal.fastapi_endpoint(method="GET")
@@ -158,6 +180,21 @@ async def optimize(request: Dict[str, Any]):
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_app.post("/api/chat")
+async def chat(payload: Dict[str, Any]):
+    prompt = payload.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt is required")
+
+    ada = _get_ada_core()
+    response, confidence, tone = ada.infer(prompt.strip())
+    return {
+        "response": response,
+        "confidence": confidence,
+        "tone": tone,
+    }
 
 @web_app.post("/rate")
 async def rate_feedback(request: Dict[str, Any]):

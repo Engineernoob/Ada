@@ -126,6 +126,8 @@ $(document).ready(function () {
             
             // Log the command for now (would normally send to backend)
             console.log("Command received: " + message);
+            appendUserMessage(message);
+            sendChatRequest(message);
             
             $(".input-field").val("");
             $("#MicBtn").attr('hidden', false);
@@ -164,5 +166,74 @@ $(document).ready(function () {
             PlayAssistant(message);
         }
     });
+
+    function appendUserMessage(message) {
+        var chatBox = document.getElementById("chat-canvas-body");
+        if (!chatBox || message.trim() === "") {
+            return;
+        }
+        var row = document.createElement("div");
+        row.className = "row justify-content-end mb-4";
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "width-size";
+
+        var bubble = document.createElement("div");
+        bubble.className = "sender_message";
+        bubble.textContent = message;
+
+        wrapper.appendChild(bubble);
+        row.appendChild(wrapper);
+        chatBox.appendChild(row);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function appendAdaMessage(message, tone) {
+        var chatBox = document.getElementById("chat-canvas-body");
+        if (!chatBox || message.trim() === "") {
+            return;
+        }
+        var row = document.createElement("div");
+        row.className = "row justify-content-start mb-4";
+
+        var wrapper = document.createElement("div");
+        wrapper.className = "width-size";
+
+        if (tone && tone.trim() !== "") {
+            var toneTag = document.createElement("div");
+            toneTag.className = "tone-label";
+            toneTag.textContent = tone;
+            wrapper.appendChild(toneTag);
+        }
+
+        var bubble = document.createElement("div");
+        bubble.className = "receiver_message";
+        bubble.textContent = message;
+
+        wrapper.appendChild(bubble);
+        row.appendChild(wrapper);
+        chatBox.appendChild(row);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendChatRequest(prompt) {
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            appendAdaMessage(data.response || "I'm here.", data.tone);
+        } catch (error) {
+            console.error("Chat request failed", error);
+            appendAdaMessage("I’m having trouble responding right now, but I’m still listening.", "neutral");
+        }
+    }
 
 });

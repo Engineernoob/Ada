@@ -17,8 +17,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .memory import ConversationStore
+from .memory import ConversationStore, add_memory, recall
 from .context_manager import ContextManager
+from .neural_core import AdaCore
 from .settings import get_setting, load_settings
 
 if TYPE_CHECKING:  # pragma: no cover - only used for type checkers
@@ -26,7 +27,10 @@ if TYPE_CHECKING:  # pragma: no cover - only used for type checkers
 
 __all__ = [
     "ConversationStore",
+    "add_memory",
+    "recall",
     "ContextManager",
+    "AdaCore",
     "ReasoningEngine",
     "GenerationResult",
     "RewardEngine",
